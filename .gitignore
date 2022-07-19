@@ -3,3 +3,5 @@
 # except explicitly tracked files.
 !.gitignore
 !README.md
+!LICENSE.md
+!netmaze.js
