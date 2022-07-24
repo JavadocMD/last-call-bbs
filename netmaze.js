@@ -104,7 +104,7 @@ function arrayOf(length, fValue) {
 var glyph = {
   floor: ".",
   wall: "#",
-  player: "♥",
+  player: "⚉",
 };
 
 var dir = {
