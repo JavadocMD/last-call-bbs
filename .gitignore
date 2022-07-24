@@ -4,4 +4,5 @@
 !.gitignore
 !README.md
 !LICENSE.md
+!index.d.ts
 !netmaze.js
