@@ -8,4 +8,5 @@
 !example.js
 !example.jpg
 !netmaze.js
+!hobbithome.js
 # This way I can "install" other servers without including them in the repo.
