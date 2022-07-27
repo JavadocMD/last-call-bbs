@@ -30,8 +30,8 @@ function getName() {
 }
 
 function onConnect() {
-  scene = TitleScene();
-  // scene = GameScene();
+  // scene = TitleScene();
+  scene = GameScene();
   state = scene.init();
   debug = new Debug();
 }
@@ -74,6 +74,8 @@ var Key = {
 
 var Color = {
   BLACK: 0,
+  FILL: 2,
+  DIG: 6,
   GROUND: 8,
   TEXT: 13,
   WHITE: 17,
@@ -87,33 +89,6 @@ var Char = {
 var Event = {
   GOTO_SCENE: "GOTO_SCENE",
 };
-
-// ======== UTIL ======== //
-
-function Debug() {
-  this.text = null;
-  this.log = function (text) {
-    this.text = text;
-  };
-  this.clear = function () {
-    this.text = null;
-  };
-  this.draw = function () {
-    if (this.text !== null) {
-      drawText(this.text, Color.TEXT, 0, 0);
-    }
-  };
-}
-
-function constrain(min, value, max) {
-  if (value < min) {
-    return min;
-  } else if (value >= max) {
-    return max - 1;
-  } else {
-    return value;
-  }
-}
 
 // ======== ENGINE ======== //
 
@@ -172,6 +147,87 @@ function TitleScene() {
   };
 }
 
+var Map = {
+  width: 56,
+  height: 20,
+  isWalkable: function (state, position) {
+    let x = position[0];
+    let y = position[1];
+    // Don't walk off map.
+    if (x < 0 || x >= Map.width || y < 0 || y >= Map.height) {
+      return false;
+    }
+    // Don't walk into another hobbit.
+    // for (let i = 0; i < state.hobbits.length; i++) {
+    //   if (samePosition(position, state.hobbits[i].position)) {
+    //     return false;
+    //   }
+    // }
+    // Don't walk into a wall.
+    return state.map[y][x] !== Char.WALL;
+  },
+  walkableNeighbors: function (state, position) {
+    return neighbors(position).filter(function (x) {
+      return Map.isWalkable(state, x);
+    });
+  },
+};
+
+var Action = {
+  Idle: function () {
+    return function (hobbit, state) {
+      if (randomInt(7) === 0) {
+        let p = randomNeighbor(hobbit.position);
+        if (Map.isWalkable(state, p)) {
+          hobbit.position = p;
+        }
+      }
+    };
+  },
+  Navigate: function (to, then) {
+    return function (hobbit, state) {
+      let path = astar(state, hobbit.position, to);
+      if (path === null) {
+        hobbit.action = null;
+      } else {
+        hobbit.action = Action.Walk(to, path, then);
+      }
+    };
+  },
+  Walk: function (to, path, then) {
+    return function (hobbit, state) {
+      if (path.length === 0) {
+        // Done.
+        hobbit.action = then;
+        return;
+      }
+      let next = path.shift();
+      if (Map.isWalkable(state, next)) {
+        // Step.
+        hobbit.position = next;
+      } else {
+        // Blocked! Re-navigate.
+        hobbit.action = Action.Navigate(to, then);
+      }
+    };
+  },
+};
+
+var Work = {
+  Dig: function (position) {
+    return {
+      type: "Dig",
+      position: position,
+    };
+  },
+  Fill: function (position) {
+    return {
+      type: "Fill",
+      position: position,
+    };
+  },
+};
+
 function GameScene() {
   function init() {
     return loadState();
@@ -179,27 +235,21 @@ function GameScene() {
 
   function onUpdate(state) {
     state.clock = (state.clock + 1) % 30;
-    if (state.clock === 29) {
-      // once per second each hobbit wanders to a new spot
+    state.anim = Math.floor(state.clock / 15);
+    // twice per second each hobbit acts
+    if (state.clock % 15 === 0) {
       for (let i = 0; i < state.hobbits.length; i++) {
-        let curr = state.hobbits[i];
-        let x = curr.position[0];
-        let y = curr.position[1];
-        switch (Math.floor(Math.random() * 4)) {
-          case 0:
-            x++;
-            break;
-          case 1:
-            x--;
-            break;
-          case 2:
-            y++;
-            break;
-          case 3:
-            y--;
-            break;
+        let hobt = state.hobbits[i];
+        let actn = hobt.action;
+        // TODO: if `actn` is null, pick a new action
+        // if (actn === null) {
+        //   actn = Action.Idle();
+        //   hobt.action = actn;
+        // }
+        // TODO: if idling while work is in queue, try to do one
+        if (actn !== null) {
+          actn(hobt, state);
         }
-        curr.position = [constrain(0, x, 56), constrain(0, y, 20)];
       }
     }
     return state;
@@ -211,7 +261,8 @@ function GameScene() {
 
   function initialState() {
     return {
-      clock: 0,
+      clock: 0, // frame clock [0,30)
+      anim: 0, // animation clock [0,1]
       map: [
         "████████████████████████████████████████████████████████".split(""),
         "████████████████████████████████████████████████████████".split(""),
@@ -234,10 +285,37 @@ function GameScene() {
         "                                                        ".split(""),
         "        .                                    .          ".split(""),
       ],
+      workQueue: [
+        Work.Dig([0, 0]),
+        Work.Dig([0, 1]),
+        Work.Dig([1, 0]),
+        Work.Fill([19, 19]),
+      ],
       hobbits: [
         {
           name: "Gundabald Bolger",
           position: [18, 18],
+          action: Action.Navigate([34, 16], Action.Idle()),
+        },
+        {
+          name: "Frogo Hornfoot",
+          position: [26, 16],
+          action: Action.Idle(),
+        },
+        {
+          name: "Stumpy",
+          position: [36, 17],
+          action: Action.Idle(),
+        },
+        {
+          name: "Hamwise Prouse",
+          position: [30, 17],
+          action: Action.Idle(),
+        },
+        {
+          name: "Mordo Glugbottle",
+          position: [10, 19],
+          action: Action.Idle(),
         },
       ],
     };
@@ -263,10 +341,26 @@ function GameScene() {
         drawText(state.map[j][i], Color.GROUND, i, j);
       }
     }
+    // draw work items
+    for (let i = 0; i < state.workQueue.length; i++) {
+      let curr = state.workQueue[i];
+      let x = curr.position[0];
+      let y = curr.position[1];
+      switch (curr.type) {
+        case "Dig":
+          drawText(Char.WALL, Color.DIG, x, y);
+          break;
+        case "Fill":
+          drawText(Char.WALL, Color.FILL, x, y);
+          break;
+      }
+    }
     // draw hobbits
     for (let i = 0; i < state.hobbits.length; i++) {
       let curr = state.hobbits[i];
-      drawText(Char.HOBBIT, Color.WHITE, curr.position[0], curr.position[1]);
+      let x = curr.position[0];
+      let y = curr.position[1];
+      drawText(Char.HOBBIT, Color.WHITE, x, y);
     }
   }
 
@@ -276,4 +370,130 @@ function GameScene() {
     onRender: onRender,
     onInput: onInput,
   };
+}
+
+// ======== UTIL ======== //
+
+function Debug() {
+  this.text = null;
+  this.log = function (text) {
+    this.text = text;
+  };
+  this.clear = function () {
+    this.text = null;
+  };
+  this.draw = function () {
+    if (this.text !== null) {
+      drawText(this.text, Color.TEXT, 0, 0);
+    }
+  };
+}
+
+function PQueue() {
+  this.queue = [];
+  this.nonEmpty = function () {
+    return this.queue.length > 0;
+  };
+  this.dequeue = function () {
+    let first = this.queue.shift();
+    return first ? first[0] : null;
+  };
+  this.enqueue = function (element, priority) {
+    for (let i = 0; i < this.queue.length; i++) {
+      if (this.queue[i][1] > priority) {
+        this.queue.splice(i, 0, [element, priority]);
+        return;
+      }
+    }
+    this.queue.push([element, priority]);
+  };
+}
+
+function randomInt(max) {
+  return Math.floor(Math.random() * max);
+}
+
+function samePosition(a, b) {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
+function distance2(a, b) {
+  return Math.abs(b[0] - a[0]) + Math.abs(b[1] - a[1]);
+}
+
+function neighbors(position) {
+  let x = position[0];
+  let y = position[1];
+  return [
+    [x, y - 1],
+    [x + 1, y],
+    [x, y + 1],
+    [x - 1, y],
+  ];
+}
+
+function randomNeighbor(position) {
+  let x = position[0];
+  let y = position[1];
+  switch (randomInt(4)) {
+    case 0:
+      return [x, y - 1];
+    case 1:
+      return [x + 1, y];
+    case 2:
+      return [x, y + 1];
+    case 3:
+      return [x - 1, y];
+  }
+}
+
+function constrain(min, value, max) {
+  if (value < min) {
+    return min;
+  } else if (value >= max) {
+    return max - 1;
+  } else {
+    return value;
+  }
+}
+
+function astar(state, start, goal) {
+  let frontier = new PQueue();
+  frontier.enqueue(start, 0);
+  let cameFrom = {};
+  cameFrom[start] = null;
+  let cost = {};
+  cost[start] = 0;
+
+  while (frontier.nonEmpty()) {
+    let curr = frontier.dequeue();
+    if (samePosition(curr, goal)) {
+      break;
+    }
+    let neighbors = Map.walkableNeighbors(state, curr);
+    for (let i = 0; i < neighbors.length; i++) {
+      let next = neighbors[i];
+      let newCost = cost[curr] + 1;
+      if (cost[next] === undefined || newCost < cost[next]) {
+        cost[next] = newCost;
+        let priority = newCost + distance2(goal, next);
+        frontier.enqueue(next, priority);
+        cameFrom[next] = curr;
+      }
+    }
+  }
+
+  if (cost[goal] === undefined) {
+    // No path!
+    return null;
+  } else {
+    let path = [goal];
+    let curr = cameFrom[goal];
+    while (curr !== null) {
+      path.unshift(curr);
+      curr = cameFrom[curr];
+    }
+    path.shift(); // trim 'start' off of path
+    return path;
+  }
 }
