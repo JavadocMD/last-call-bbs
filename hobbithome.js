@@ -83,6 +83,7 @@ var Color = {
 
 var Char = {
   WALL: "█",
+  FLOOR: " ",
   HOBBIT: "☻",
 };
 
@@ -166,6 +167,11 @@ var Map = {
     // Don't walk into a wall.
     return state.map[y][x] !== Char.WALL;
   },
+  isOccupied: function (state, position) {
+    return state.hobbits.some(function (h) {
+      return samePosition(position, h.position);
+    });
+  },
   walkableNeighbors: function (state, position) {
     return neighbors(position).filter(function (x) {
       return Map.isWalkable(state, x);
@@ -173,41 +179,164 @@ var Map = {
   },
 };
 
+var ActionResult = {
+  CONTINUE: -1,
+  COMPLETE: 0,
+  CANCELED: 1,
+};
+
 var Action = {
   Idle: function () {
-    return function (hobbit, state) {
+    return function Idle(hobbit, state) {
       if (randomInt(7) === 0) {
-        let p = randomNeighbor(hobbit.position);
-        if (Map.isWalkable(state, p)) {
-          hobbit.position = p;
+        let ns = Map.walkableNeighbors(state, hobbit.position);
+        if (notEmpty(ns)) {
+          hobbit.position = ns.random();
         }
       }
+      return ActionResult.CONTINUE;
     };
   },
-  Navigate: function (to, then) {
-    return function (hobbit, state) {
-      let path = astar(state, hobbit.position, to);
-      if (path === null) {
-        hobbit.action = null;
-      } else {
-        hobbit.action = Action.Walk(to, path, then);
-      }
-    };
-  },
-  Walk: function (to, path, then) {
-    return function (hobbit, state) {
+  Walk: function (path) {
+    return function Walk(hobbit, state) {
+      // Done?
       if (path.length === 0) {
-        // Done.
-        hobbit.action = then;
-        return;
+        return ActionResult.COMPLETE;
       }
+      // Walk.
       let next = path.shift();
       if (Map.isWalkable(state, next)) {
         // Step.
         hobbit.position = next;
+        return ActionResult.CONTINUE;
       } else {
-        // Blocked! Re-navigate.
-        hobbit.action = Action.Navigate(to, then);
+        // Blocked!
+        return ActionResult.CANCELED;
+      }
+    };
+  },
+  // Walk to the indicated space if navigable.
+  GoTo: function (to) {
+    let path = null;
+    let walk = null;
+    return function GoTo(hobbit, state) {
+      // Pathfind.
+      if (path === null) {
+        path = astar(state, hobbit.position, to);
+        if (path === null) {
+          return ActionResult.CANCELED;
+        } else {
+          walk = Action.Walk(path);
+        }
+      }
+      // Defer to Walk action.
+      let res = walk(hobbit, state);
+      switch (res) {
+        case ActionResult.CONTINUE:
+          return ActionResult.CONTINUE;
+        case ActionResult.COMPLETE:
+          return ActionResult.COMPLETE;
+        case ActionResult.CANCELED:
+          // Re-navigate next tick.
+          path = null;
+          walk = null;
+          return ActionResult.CONTINUE;
+      }
+    };
+  },
+  // Find the first navigable adjacent space and walk there.
+  GoToAdjacent: function (to) {
+    let path = null;
+    let walk = null;
+    return function GoToAdjacent(hobbit, state) {
+      // Pathfind.
+      if (path === null) {
+        path = Map.walkableNeighbors(state, to).mapFirstNotNull(function (x) {
+          return astar(state, hobbit.position, x);
+        });
+        if (path === null) {
+          return ActionResult.CANCELED;
+        } else {
+          walk = Action.Walk(path);
+        }
+      }
+      // Defer to Walk action.
+      let res = walk(hobbit, state);
+      switch (res) {
+        case ActionResult.CONTINUE:
+          return ActionResult.CONTINUE;
+        case ActionResult.COMPLETE:
+          return ActionResult.COMPLETE;
+        case ActionResult.CANCELED:
+          // Re-navigate next tick.
+          path = null;
+          walk = null;
+          return ActionResult.CONTINUE;
+      }
+    };
+  },
+  Fill: function (work) {
+    let go = Action.GoToAdjacent(work.position);
+    let timer = 10;
+    return function Fill(hobbit, state) {
+      // Defer to goto action until complete.
+      if (go) {
+        let res = go(hobbit, state);
+        switch (res) {
+          case ActionResult.CONTINUE:
+            return ActionResult.CONTINUE;
+          case ActionResult.COMPLETE:
+            go = null;
+            return ActionResult.CONTINUE;
+          case ActionResult.CANCELED:
+            cancelWork(state, hobbit, work);
+            return ActionResult.CANCELED;
+        }
+      }
+      // Do the fill.
+      if (timer > 0) {
+        timer--;
+        return ActionResult.CONTINUE;
+      } else if (Map.isOccupied(state, work.position)) {
+        // wait for spot to be empty
+        return ActionResult.CONTINUE;
+      } else {
+        let x = work.position[0];
+        let y = work.position[1];
+        state.map[y][x] = Char.WALL;
+        finishWork(state, hobbit, work);
+        return ActionResult.COMPLETE;
+      }
+    };
+  },
+  Dig: function (work) {
+    let go = Action.GoToAdjacent(work.position);
+    let timer = 10;
+    return function Dig(hobbit, state) {
+      // Defer to goto action until complete.
+      if (go) {
+        let res = go(hobbit, state);
+        switch (res) {
+          case ActionResult.CONTINUE:
+            return ActionResult.CONTINUE;
+          case ActionResult.COMPLETE:
+            go = null;
+            return ActionResult.CONTINUE;
+          case ActionResult.CANCELED:
+            cancelWork(state, hobbit, work);
+            return ActionResult.CANCELED;
+        }
+      }
+      // Do the dig.
+      if (timer > 0) {
+        timer--;
+        return ActionResult.CONTINUE;
+      } else {
+        let x = work.position[0];
+        let y = work.position[1];
+        state.map[y][x] = Char.FLOOR;
+        finishWork(state, hobbit, work);
+        return ActionResult.COMPLETE;
       }
     };
   },
@@ -218,17 +347,43 @@ var Work = {
     return {
       type: "Dig",
       position: position,
+      claimed: false,
+      toAction: function (self) {
+        return Action.Dig(self);
+      },
     };
   },
   Fill: function (position) {
     return {
       type: "Fill",
       position: position,
+      claimed: false,
+      toAction: function (self) {
+        return Action.Fill(self);
+      },
     };
   },
 };
 
+function startWork(state, hobbit, work) {
+  hobbit.work = work;
+  work.claimed = true;
+}
+
+function cancelWork(state, hobbit, work) {
+  hobbit.work = null;
+  work.claimed = false;
+}
+
+function finishWork(state, hobbit, work) {
+  hobbit.work = null;
+  let i = state.workQueue.indexOf(work);
+  state.workQueue.splice(i, 1);
+}
+
 function GameScene() {
+  let ACTION_IDLE = Action.Idle();
+
   function init() {
     return loadState();
   }
@@ -236,22 +391,43 @@ function GameScene() {
   function onUpdate(state) {
     state.clock = (state.clock + 1) % 30;
     state.anim = Math.floor(state.clock / 15);
-    // twice per second each hobbit acts
+
+    // twice per second, process work/actions
     if (state.clock % 15 === 0) {
+      // TODO: detect inaccessible work and maybe don't assign it until map changes?
+      // assign work to idle hobbits
+      let unclaimedWork = state.workQueue.filter(function (x) {
+        return x.claimed === false;
+      });
+      let idleHobbits = state.hobbits.filter(function (x) {
+        return x.action.name === "Idle";
+      });
+      while (notEmpty(unclaimedWork) && notEmpty(idleHobbits)) {
+        let w = unclaimedWork.shift();
+        let h = idleHobbits.shift();
+        startWork(state, h, w);
+        h.action = w.toAction(w);
+      }
+
+      // perform actions
       for (let i = 0; i < state.hobbits.length; i++) {
-        let hobt = state.hobbits[i];
-        let actn = hobt.action;
-        // TODO: if `actn` is null, pick a new action
-        // if (actn === null) {
-        //   actn = Action.Idle();
-        //   hobt.action = actn;
-        // }
-        // TODO: if idling while work is in queue, try to do one
-        if (actn !== null) {
-          actn(hobt, state);
+        let h = state.hobbits[i];
+        let result = h.action(h, state);
+        switch (result) {
+          case ActionResult.CONTINUE:
+            break;
+          case ActionResult.COMPLETE:
+            h.action = ACTION_IDLE;
+            break;
+          case ActionResult.CANCELED:
+            h.action = ACTION_IDLE;
+            break;
+          default:
+            throw "ActionResult not valid.";
         }
       }
     }
+
     return state;
   }
 
@@ -286,36 +462,43 @@ function GameScene() {
         "        .                                    .          ".split(""),
       ],
       workQueue: [
-        Work.Dig([0, 0]),
-        Work.Dig([0, 1]),
-        Work.Dig([1, 0]),
+        // Work.Dig([0, 0]),
+        // Work.Dig([0, 1]),
+        // Work.Dig([1, 0]),
+        Work.Dig([4, 11]),
         Work.Fill([19, 19]),
       ],
       hobbits: [
         {
           name: "Gundabald Bolger",
           position: [18, 18],
-          action: Action.Navigate([34, 16], Action.Idle()),
+          // action: Action.GoTo([34, 16]),
+          action: ACTION_IDLE,
+          work: null,
         },
         {
           name: "Frogo Hornfoot",
           position: [26, 16],
-          action: Action.Idle(),
+          action: ACTION_IDLE,
+          work: null,
         },
         {
           name: "Stumpy",
           position: [36, 17],
-          action: Action.Idle(),
+          action: ACTION_IDLE,
+          work: null,
         },
         {
           name: "Hamwise Prouse",
           position: [30, 17],
-          action: Action.Idle(),
+          action: ACTION_IDLE,
+          work: null,
         },
         {
           name: "Mordo Glugbottle",
           position: [10, 19],
-          action: Action.Idle(),
+          action: ACTION_IDLE,
+          work: null,
         },
       ],
     };
@@ -377,7 +560,13 @@ function GameScene() {
 function Debug() {
   this.text = null;
   this.log = function (text) {
-    this.text = text;
+    if (text === null) {
+      this.text = "null";
+    } else if (text === undefined) {
+      this.text = "undefined";
+    } else {
+      this.text = text;
+    }
   };
   this.clear = function () {
     this.text = null;
@@ -409,7 +598,12 @@ function PQueue() {
   };
 }
 
+function notEmpty(xs) {
+  return xs.length > 0;
+}
+
 function randomInt(max) {
+  // max is non-inclusive
   return Math.floor(Math.random() * max);
 }
 
@@ -432,20 +626,20 @@ function neighbors(position) {
   ];
 }
 
-function randomNeighbor(position) {
-  let x = position[0];
-  let y = position[1];
-  switch (randomInt(4)) {
-    case 0:
-      return [x, y - 1];
-    case 1:
-      return [x + 1, y];
-    case 2:
-      return [x, y + 1];
-    case 3:
-      return [x - 1, y];
-  }
-}
+// function randomNeighbor(position) {
+//   let x = position[0];
+//   let y = position[1];
+//   switch (randomInt(4)) {
+//     case 0:
+//       return [x, y - 1];
+//     case 1:
+//       return [x + 1, y];
+//     case 2:
+//       return [x, y + 1];
+//     case 3:
+//       return [x - 1, y];
+//   }
+// }
 
 function constrain(min, value, max) {
   if (value < min) {
@@ -456,6 +650,30 @@ function constrain(min, value, max) {
     return value;
   }
 }
+
+Array.prototype.mapFirstNotNull = function (mapFn) {
+  for (let i = 0; i < this.length; i++) {
+    let y = mapFn(this[i]);
+    if (y !== null) {
+      return y;
+    }
+  }
+  return null;
+};
+
+Array.prototype.find = function (predicate) {
+  for (let i = 0; i < this.length; i++) {
+    let x = this[i];
+    if (predicate(x) === true) {
+      return x;
+    }
+  }
+  return null;
+};
+
+Array.prototype.random = function () {
+  return this.length > 0 ? this[randomInt(this.length)] : null;
+};
 
 function astar(state, start, goal) {
   let frontier = new PQueue();
