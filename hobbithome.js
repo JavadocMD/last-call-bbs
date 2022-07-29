@@ -289,7 +289,7 @@ var Action = {
             go = null;
             return ActionResult.CONTINUE;
           case ActionResult.CANCELED:
-            cancelWork(state, hobbit, work);
+            state.workQueue.canceled(work);
             return ActionResult.CANCELED;
         }
       }
@@ -304,7 +304,7 @@ var Action = {
         let x = work.position[0];
         let y = work.position[1];
         state.map[y][x] = Char.WALL;
-        finishWork(state, hobbit, work);
+        state.workQueue.completed(work);
         return ActionResult.COMPLETE;
       }
     };
@@ -323,7 +323,7 @@ var Action = {
             go = null;
             return ActionResult.CONTINUE;
           case ActionResult.CANCELED:
-            cancelWork(state, hobbit, work);
+            state.workQueue.canceled(work);
             return ActionResult.CANCELED;
         }
       }
@@ -335,10 +335,20 @@ var Action = {
         let x = work.position[0];
         let y = work.position[1];
         state.map[y][x] = Char.FLOOR;
-        finishWork(state, hobbit, work);
+        state.workQueue.completed(work);
         return ActionResult.COMPLETE;
       }
     };
+  },
+  forWork: function (work) {
+    switch (work.type) {
+      case "Dig":
+        return this.Dig(work);
+      case "Fill":
+        return this.Fill(work);
+      default:
+        throw "Unable to create action for work type " + work.type;
+    }
   },
 };
 
@@ -347,38 +357,79 @@ var Work = {
     return {
       type: "Dig",
       position: position,
-      claimed: false,
-      toAction: function (self) {
-        return Action.Dig(self);
-      },
+      claimedBy: null,
     };
   },
   Fill: function (position) {
     return {
       type: "Fill",
       position: position,
-      claimed: false,
-      toAction: function (self) {
-        return Action.Fill(self);
-      },
+      claimedBy: null,
     };
   },
 };
 
-function startWork(state, hobbit, work) {
-  hobbit.work = work;
-  work.claimed = true;
-}
+function WorkQueue(initialItems) {
+  this.items = [];
+  this.onHold = [];
+  if (initialItems && initialItems.length > 0) {
+    this.items = this.items.concat(initialItems);
+  }
 
-function cancelWork(state, hobbit, work) {
-  hobbit.work = null;
-  work.claimed = false;
-}
+  this.add = function (work) {
+    this.items.push(work);
+  };
 
-function finishWork(state, hobbit, work) {
-  hobbit.work = null;
-  let i = state.workQueue.indexOf(work);
-  state.workQueue.splice(i, 1);
+  this.started = function (work, hobbit) {
+    work.claimedBy = hobbit;
+  };
+  this.canceled = function (work) {
+    work.claimedBy = null;
+    // remove from queue and place on hold
+    let i = this.items.indexOf(work);
+    if (i >= 0) {
+      this.items.splice(i, 1);
+    }
+    this.onHold.push(work);
+  };
+  this.completed = function (work) {
+    let i = this.items.indexOf(work);
+    if (i >= 0) {
+      this.items.splice(i, 1);
+    }
+  };
+
+  this.tick = function () {
+    // on hold work is trickled back into queue, one per tick
+    if (notEmpty(this.onHold)) {
+      let w = this.onHold.shift();
+      this.items.push(w);
+    }
+  };
+
+  let isUnassigned = function (x) {
+    return x.claimedBy === null;
+  };
+  this.getUnassigned = function () {
+    return this.items.filter(isUnassigned);
+  };
+
+  this.draw = function () {
+    let xs = this.items.concat(this.onHold);
+    for (let i = 0; i < xs.length; i++) {
+      let curr = xs[i];
+      let x = curr.position[0];
+      let y = curr.position[1];
+      switch (curr.type) {
+        case "Dig":
+          drawText(Char.WALL, Color.DIG, x, y);
+          break;
+        case "Fill":
+          drawText(Char.WALL, Color.FILL, x, y);
+          break;
+      }
+    }
+  };
 }
 
 function GameScene() {
@@ -394,19 +445,17 @@ function GameScene() {
 
     // twice per second, process work/actions
     if (state.clock % 15 === 0) {
-      // TODO: detect inaccessible work and maybe don't assign it until map changes?
+      state.workQueue.tick();
       // assign work to idle hobbits
-      let unclaimedWork = state.workQueue.filter(function (x) {
-        return x.claimed === false;
-      });
+      let unclaimedWork = state.workQueue.getUnassigned();
       let idleHobbits = state.hobbits.filter(function (x) {
         return x.action.name === "Idle";
       });
       while (notEmpty(unclaimedWork) && notEmpty(idleHobbits)) {
         let w = unclaimedWork.shift();
         let h = idleHobbits.shift();
-        startWork(state, h, w);
-        h.action = w.toAction(w);
+        state.workQueue.started(w, h);
+        h.action = Action.forWork(w);
       }
 
       // perform actions
@@ -461,44 +510,39 @@ function GameScene() {
         "                                                        ".split(""),
         "        .                                    .          ".split(""),
       ],
-      workQueue: [
-        // Work.Dig([0, 0]),
-        // Work.Dig([0, 1]),
-        // Work.Dig([1, 0]),
+      workQueue: new WorkQueue([
+        Work.Dig([0, 0]),
+        Work.Dig([0, 1]),
+        Work.Dig([1, 0]),
         Work.Dig([4, 11]),
         Work.Fill([19, 19]),
-      ],
+      ]),
       hobbits: [
         {
           name: "Gundabald Bolger",
           position: [18, 18],
           // action: Action.GoTo([34, 16]),
           action: ACTION_IDLE,
-          work: null,
         },
         {
           name: "Frogo Hornfoot",
           position: [26, 16],
           action: ACTION_IDLE,
-          work: null,
         },
         {
           name: "Stumpy",
           position: [36, 17],
           action: ACTION_IDLE,
-          work: null,
         },
         {
           name: "Hamwise Prouse",
           position: [30, 17],
           action: ACTION_IDLE,
-          work: null,
         },
         {
           name: "Mordo Glugbottle",
           position: [10, 19],
           action: ACTION_IDLE,
-          work: null,
         },
       ],
     };
@@ -525,19 +569,7 @@ function GameScene() {
       }
     }
     // draw work items
-    for (let i = 0; i < state.workQueue.length; i++) {
-      let curr = state.workQueue[i];
-      let x = curr.position[0];
-      let y = curr.position[1];
-      switch (curr.type) {
-        case "Dig":
-          drawText(Char.WALL, Color.DIG, x, y);
-          break;
-        case "Fill":
-          drawText(Char.WALL, Color.FILL, x, y);
-          break;
-      }
-    }
+    state.workQueue.draw();
     // draw hobbits
     for (let i = 0; i < state.hobbits.length; i++) {
       let curr = state.hobbits[i];
