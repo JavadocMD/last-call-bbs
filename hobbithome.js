@@ -30,8 +30,8 @@ function getName() {
 }
 
 function onConnect() {
-  // scene = TitleScene();
-  scene = GameScene();
+  scene = TitleScene();
+  // scene = GameScene();
   state = scene.init();
   debug = new Debug();
 }
@@ -104,53 +104,86 @@ var Event = {
 
 // ======== ENGINE ======== //
 
-function Menu(options) {
-  function draw(color, x, y) {
-    for (let i = 0; i < options.length; i++) {
-      let key = i + 1;
-      drawText(key + ". " + options[i], color, x, y + i);
-    }
-  }
-  function checkOption(key) {
-    // options are keyed 1-based, with 0 being the 10th option.
-    if (key === 48) {
-      return options[9] || null;
-    } else if (key >= 49 && key <= 57) {
-      return options[key - 49] || null;
-    } else {
-      return null;
-    }
-  }
-  return {
-    draw: draw,
-    checkOption: checkOption,
-  };
-}
-
 function TitleScene() {
-  var menu = Menu(["start game"]);
+  var Mode = {
+    default: {
+      onInput: function (state, key) {
+        if (key === Key.TAB) {
+          state.mode = Mode.rootMenu;
+        }
+        return state;
+      },
+      onRender: function (state) {},
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+    rootMenu: {
+      onInput: function (state, key) {
+        if (key === Key.TAB || key === Key.ESCAPE) {
+          state.mode = Mode.default;
+        } else if (key === Key.BACKTICK) {
+          state.menuLeft = !state.menuLeft;
+        } else if (key === Key._1) {
+          return { event: Event.GOTO_SCENE, scene: GameScene };
+        }
+        return state;
+      },
+      onRender: function (state) {
+        let offset = state.menuLeft ? 0 : 40;
+        drawBox(Color.TEXT, offset, 0, 16, 20);
+        fillArea(" ", Color.BLACK, offset + 1, 1, 14, 18);
+        drawText("Hobbit Home", Color.TEXT, offset + 2, 0);
+        drawText("1. start game", Color.TEXT, offset + 1, 1);
+      },
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+  };
+
   function init() {
-    return {};
+    return {
+      mode: Mode.default,
+      prevMode: Mode.default,
+      menuLeft: true,
+    };
   }
+
   function onUpdate(state) {
     return state;
   }
+
   function onInput(state, key) {
-    let opt = menu.checkOption(key);
-    if (opt === "start game") {
-      return { event: Event.GOTO_SCENE, scene: GameScene };
+    // modal input
+    let result = state.mode.onInput(state, key);
+    if (result.event) {
+      return result;
+    } else {
+      // trigger mode transition
+      if (state.prevMode !== state.mode) {
+        state.prevMode.onExit(state);
+        state.mode.onEnter(state);
+        state.prevMode = state.mode;
+      }
+      return state;
     }
-    return state;
   }
+
   function onRender(state) {
-    drawText("Hobbit Home", Color.TEXT, 10, 5);
-    drawText("a game by javadocmd", Color.TEXT, 12, 8);
+    let c = Color.TEXT;
+    drawText("                                 ▗            ", c, 4, 2);
+    drawText("                                 ▖▗           ", c, 4, 3);
+    drawText("█▙  █▙     █   █   ☻  ▙   █▙  █▙              ", c, 4, 4);
+    drawText("██  ██ ██▙ ██▙ ██▙   ██▙  ██  ██ ██▙ ██▙█▙ ██▛", c, 4, 5);
+    drawText("██████ █ █ █ █ █ █ █  █   ██████ █ █ █ █ █ █═ ", c, 4, 6);
+    drawText("▜█  ▜█ ▜█▛ ▜█▛ ▜█▛ ▜  ▜   ▜█  ▜█ ▜█▛ ▜ ▜ ▜ ▜█▛", c, 4, 7);
+    drawText(" ═══════a game by javadocmd════════════v0.1════", c, 4, 8);
 
-    drawText("══ MENU ══", Color.TEXT, 12, 11);
-    menu.draw(Color.TEXT, 12, 12);
+    drawText("press TAB to display menu", c, 6, 14);
+    drawText("press BACKTICK to flip the menu left or right", c, 6, 15);
 
-    drawText("v0.1", Color.TEXT, 52, 19);
+    state.mode.onRender(state);
   }
+
   return {
     init: init,
     onUpdate: onUpdate,
@@ -522,14 +555,18 @@ function GameScene() {
       }
     }
     // modal input
-    state.mode.onInput(state, key);
-    // trigger mode transition
-    if (state.prevMode !== state.mode) {
-      state.prevMode.onExit(state);
-      state.mode.onEnter(state);
-      state.prevMode = state.mode;
+    let result = state.mode.onInput(state, key);
+    if (result.event) {
+      return result;
+    } else {
+      // trigger mode transition
+      if (state.prevMode !== state.mode) {
+        state.prevMode.onExit(state);
+        state.mode.onEnter(state);
+        state.prevMode = state.mode;
+      }
+      return state;
     }
-    return state;
   }
 
   var Mode = {
