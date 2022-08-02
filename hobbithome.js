@@ -61,6 +61,7 @@ function onInput(key) {
 // ======== CONSTANTS ======== //
 
 var Key = {
+  ESCAPE: 27,
   SPACE: 32,
   BACKSPACE: 8,
   TAB: 9,
@@ -70,6 +71,16 @@ var Key = {
   LEFT: 19,
   RIGHT: 20,
   BACKTICK: 96,
+  _0: 48,
+  _1: 49,
+  _2: 50,
+  _3: 51,
+  _4: 52,
+  _5: 53,
+  _6: 54,
+  _7: 55,
+  _8: 56,
+  _9: 57,
 };
 
 var Color = {
@@ -151,6 +162,11 @@ function TitleScene() {
 var Map = {
   width: 56,
   height: 20,
+  is: function (state, position, char) {
+    let x = position[0];
+    let y = position[1];
+    return state.map[y][x] === char;
+  },
   isWalkable: function (state, position) {
     let x = position[0];
     let y = position[1];
@@ -191,7 +207,7 @@ var Action = {
       if (randomInt(7) === 0) {
         let ns = Map.walkableNeighbors(state, hobbit.position);
         if (notEmpty(ns)) {
-          hobbit.position = ns.random();
+          hobbit.position = Arrays.random(ns);
         }
       }
       return ActionResult.CONTINUE;
@@ -251,9 +267,12 @@ var Action = {
     return function GoToAdjacent(hobbit, state) {
       // Pathfind.
       if (path === null) {
-        path = Map.walkableNeighbors(state, to).mapFirstNotNull(function (x) {
-          return astar(state, hobbit.position, x);
-        });
+        path = Arrays.mapFirstNotNull(
+          Map.walkableNeighbors(state, to),
+          function (x) {
+            return astar(state, hobbit.position, x);
+          }
+        );
         if (path === null) {
           return ActionResult.CANCELED;
         } else {
@@ -358,6 +377,7 @@ var Work = {
       type: "Dig",
       position: position,
       claimedBy: null,
+      onHold: false,
     };
   },
   Fill: function (position) {
@@ -365,57 +385,61 @@ var Work = {
       type: "Fill",
       position: position,
       claimedBy: null,
+      onHold: false,
     };
+  },
+  isUnassigned: function (x) {
+    return x.claimedBy === null && x.onHold === false;
   },
 };
 
 function WorkQueue(initialItems) {
-  this.items = [];
-  this.onHold = [];
-  if (initialItems && initialItems.length > 0) {
+  this.items = []; // all work items
+  this.onHold = []; // queue for on-hold items (an item may be in both arrays)
+  if (initialItems && notEmpty(initialItems)) {
     this.items = this.items.concat(initialItems);
   }
 
   this.add = function (work) {
     this.items.push(work);
   };
+  this.remove = function (work) {
+    Arrays.removeItem(this.items, work);
+    Arrays.removeItem(this.onHold, work);
+  };
 
   this.started = function (work, hobbit) {
     work.claimedBy = hobbit;
   };
   this.canceled = function (work) {
+    // work unable to be completed by hobbit: place on hold
     work.claimedBy = null;
-    // remove from queue and place on hold
-    let i = this.items.indexOf(work);
-    if (i >= 0) {
-      this.items.splice(i, 1);
-    }
+    work.onHold = true;
     this.onHold.push(work);
   };
   this.completed = function (work) {
-    let i = this.items.indexOf(work);
-    if (i >= 0) {
-      this.items.splice(i, 1);
-    }
+    Arrays.removeItem(this.items, work);
   };
 
   this.tick = function () {
     // on hold work is trickled back into queue, one per tick
     if (notEmpty(this.onHold)) {
       let w = this.onHold.shift();
-      this.items.push(w);
+      w.onHold = false;
     }
   };
 
-  let isUnassigned = function (x) {
-    return x.claimedBy === null;
-  };
   this.getUnassigned = function () {
-    return this.items.filter(isUnassigned);
+    return this.items.filter(Work.isUnassigned);
+  };
+  this.at = function (position) {
+    return Arrays.find(this.items, function (x) {
+      return samePosition(x.position, position);
+    });
   };
 
   this.draw = function () {
-    let xs = this.items.concat(this.onHold);
+    let xs = this.items;
     for (let i = 0; i < xs.length; i++) {
       let curr = xs[i];
       let x = curr.position[0];
@@ -453,7 +477,9 @@ function GameScene() {
       });
       while (notEmpty(unclaimedWork) && notEmpty(idleHobbits)) {
         let w = unclaimedWork.shift();
-        let h = idleHobbits.shift();
+        let h = Arrays.removeMaxBy(idleHobbits, function (hobbit) {
+          return -distance(w.position, hobbit.position);
+        });
         state.workQueue.started(w, h);
         h.action = Action.forWork(w);
       }
@@ -481,13 +507,152 @@ function GameScene() {
   }
 
   function onInput(state, key) {
+    // cursor input
+    if (state.cursorOn) {
+      let x = state.cursor[0];
+      let y = state.cursor[1];
+      if (key === Key.LEFT) {
+        state.cursor = [constrain(0, x - 1, 56), y];
+      } else if (key === Key.RIGHT) {
+        state.cursor = [constrain(0, x + 1, 56), y];
+      } else if (key === Key.UP) {
+        state.cursor = [x, constrain(0, y - 1, 20)];
+      } else if (key === Key.DOWN) {
+        state.cursor = [x, constrain(0, y + 1, 20)];
+      }
+    }
+    // modal input
+    state.mode.onInput(state, key);
+    // trigger mode transition
+    if (state.prevMode !== state.mode) {
+      state.prevMode.onExit(state);
+      state.mode.onEnter(state);
+      state.prevMode = state.mode;
+    }
     return state;
   }
+
+  var Mode = {
+    default: {
+      onInput: function (state, key) {
+        if (key === Key.TAB) {
+          state.mode = Mode.rootMenu;
+        }
+        return state;
+      },
+      onRender: function (state) {},
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+    rootMenu: {
+      onInput: function (state, key) {
+        if (key === Key.TAB || key === Key.ESCAPE) {
+          state.mode = Mode.default;
+        } else if (key === Key.BACKTICK) {
+          state.menuLeft = !state.menuLeft;
+        } else if (key === Key._1) {
+          state.mode = Mode.digging;
+        } else if (key === Key._2) {
+          state.mode = Mode.filling;
+        } else if (key === Key._3) {
+          // TODO: hobbits menu
+          // state.mode = Mode.hobbits;
+        }
+        return state;
+      },
+      onRender: function (state) {
+        let offset = state.menuLeft ? 0 : 40;
+        drawBox(Color.TEXT, offset, 0, 16, 20);
+        fillArea(" ", Color.BLACK, offset + 1, 1, 14, 18);
+        drawText("Hobbit Home", Color.TEXT, offset + 2, 0);
+        drawText("1. dig", Color.TEXT, offset + 1, 1);
+        drawText("2. fill", Color.TEXT, offset + 1, 2);
+        // drawText("3. hobbits", Color.TEXT, offset + 1, 3);
+      },
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+    digging: {
+      onInput: function (state, key) {
+        if (key === Key.ESCAPE) {
+          state.mode = Mode.rootMenu;
+        } else if (key === Key.ENTER) {
+          let work = state.workQueue.at(state.cursor);
+          if (!work) {
+            // no existing order, create one
+            if (Map.is(state, state.cursor, Char.WALL)) {
+              state.workQueue.add(Work.Dig(state.cursor));
+            }
+          } else if (work.type === "Dig") {
+            // terminate existing dig orders
+            state.workQueue.remove(work);
+            if (work.claimedBy) {
+              work.claimedBy.action = ACTION_IDLE;
+            }
+          }
+          // leave non-dig orders as-is
+        }
+        return state;
+      },
+      onRender: function (state) {
+        drawBox(Color.TEXT, 0, 0, 56, 1);
+        drawText("digging (ENTER to mark, ESC to cancel)", Color.TEXT, 1, 0);
+      },
+      onEnter: function (state) {
+        state.cursorOn = true;
+        return state;
+      },
+      onExit: function (state) {
+        state.cursorOn = false;
+        return state;
+      },
+    },
+    filling: {
+      onInput: function (state, key) {
+        if (key === Key.ESCAPE) {
+          state.mode = Mode.rootMenu;
+        } else if (key === Key.ENTER) {
+          let work = state.workQueue.at(state.cursor);
+          if (!work) {
+            // no existing order, create one
+            if (Map.is(state, state.cursor, Char.FLOOR)) {
+              state.workQueue.add(Work.Fill(state.cursor));
+            }
+          } else if (work.type === "Fill") {
+            // terminate existing fill orders
+            state.workQueue.remove(work);
+            if (work.claimedBy) {
+              work.claimedBy.action = ACTION_IDLE;
+            }
+          }
+          // leave non-fill orders as-is
+        }
+        return state;
+      },
+      onRender: function (state) {
+        drawBox(Color.TEXT, 0, 0, 56, 1);
+        drawText("filling (ENTER to mark, ESC to cancel)", Color.TEXT, 1, 0);
+      },
+      onEnter: function (state) {
+        state.cursorOn = true;
+        return state;
+      },
+      onExit: function (state) {
+        state.cursorOn = false;
+        return state;
+      },
+    },
+  };
 
   function initialState() {
     return {
       clock: 0, // frame clock [0,30)
       anim: 0, // animation clock [0,1]
+      mode: Mode.default,
+      prevMode: Mode.default,
+      menuLeft: true,
+      cursorOn: false,
+      cursor: [10, 10],
       map: [
         "████████████████████████████████████████████████████████".split(""),
         "████████████████████████████████████████████████████████".split(""),
@@ -501,20 +666,25 @@ function GameScene() {
         "████████████████████████████████████████████████████████".split(""),
         "███████████████████████████████████████████████████████ ".split(""),
         "█████████   ██████████████████████████  █████████████   ".split(""),
-        "  .                                                     ".split(""),
-        "                                                   .    ".split(""),
-        "            .                                           ".split(""),
         "                                                        ".split(""),
-        "                                   .                    ".split(""),
-        "                     .                                  ".split(""),
         "                                                        ".split(""),
-        "        .                                    .          ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
       ],
       workQueue: new WorkQueue([
         Work.Dig([0, 0]),
         Work.Dig([0, 1]),
         Work.Dig([1, 0]),
+        Work.Dig([3, 11]),
         Work.Dig([4, 11]),
+        Work.Dig([5, 11]),
+        Work.Dig([3, 10]),
+        Work.Dig([4, 10]),
+        Work.Dig([5, 10]),
         Work.Fill([19, 19]),
       ]),
       hobbits: [
@@ -577,6 +747,15 @@ function GameScene() {
       let y = curr.position[1];
       drawText(Char.HOBBIT, Color.WHITE, x, y);
     }
+    // draw modality
+    state.mode.onRender(state);
+    // draw cursor
+    if (state.cursorOn) {
+      let color = state.anim ? Color.WHITE : Color.GROUND;
+      let x = state.cursor[0];
+      let y = state.cursor[1];
+      drawText("X", color, x, y);
+    }
   }
 
   return {
@@ -622,7 +801,7 @@ function PQueue() {
   this.enqueue = function (element, priority) {
     for (let i = 0; i < this.queue.length; i++) {
       if (this.queue[i][1] > priority) {
-        this.queue.splice(i, 0, [element, priority]);
+        Arrays.insert(this.queue, i, [element, priority]);
         return;
       }
     }
@@ -643,7 +822,8 @@ function samePosition(a, b) {
   return a[0] === b[0] && a[1] === b[1];
 }
 
-function distance2(a, b) {
+function distance(a, b) {
+  // manhattan distance
   return Math.abs(b[0] - a[0]) + Math.abs(b[1] - a[1]);
 }
 
@@ -658,21 +838,6 @@ function neighbors(position) {
   ];
 }
 
-// function randomNeighbor(position) {
-//   let x = position[0];
-//   let y = position[1];
-//   switch (randomInt(4)) {
-//     case 0:
-//       return [x, y - 1];
-//     case 1:
-//       return [x + 1, y];
-//     case 2:
-//       return [x, y + 1];
-//     case 3:
-//       return [x - 1, y];
-//   }
-// }
-
 function constrain(min, value, max) {
   if (value < min) {
     return min;
@@ -683,28 +848,75 @@ function constrain(min, value, max) {
   }
 }
 
-Array.prototype.mapFirstNotNull = function (mapFn) {
-  for (let i = 0; i < this.length; i++) {
-    let y = mapFn(this[i]);
-    if (y !== null) {
-      return y;
+var Arrays = {
+  random: function (xs) {
+    return xs.length > 0 ? xs[randomInt(xs.length)] : null;
+  },
+  mapFirstNotNull: function (xs, mapFn) {
+    for (let i = 0; i < xs.length; i++) {
+      let y = mapFn(xs[i]);
+      if (y !== null) {
+        return y;
+      }
     }
-  }
-  return null;
-};
-
-Array.prototype.find = function (predicate) {
-  for (let i = 0; i < this.length; i++) {
-    let x = this[i];
-    if (predicate(x) === true) {
-      return x;
+    return null;
+  },
+  find: function (xs, predicate) {
+    for (let i = 0; i < xs.length; i++) {
+      let x = xs[i];
+      if (predicate(x) === true) {
+        return x;
+      }
     }
-  }
-  return null;
-};
-
-Array.prototype.random = function () {
-  return this.length > 0 ? this[randomInt(this.length)] : null;
+    return null;
+  },
+  maxBy: function (xs, scoreFn) {
+    if (xs.length === 0) {
+      return null;
+    }
+    let bestItem = xs[0];
+    let bestScore = scoreFn(bestItem);
+    for (let i = 1; i < xs.length; i++) {
+      let curr = xs[i];
+      let score = scoreFn(curr);
+      if (score > bestScore) {
+        bestItem = curr;
+        bestScore = score;
+      }
+    }
+    return bestItem;
+  },
+  insert: function (xs, i, x) {
+    xs.splice(i, 0, x);
+  },
+  remove: function (xs, i) {
+    xs.splice(i, 1);
+  },
+  removeItem: function (xs, item) {
+    let i = xs.indexOf(item);
+    if (i >= 0) {
+      xs.splice(i, 1);
+    }
+  },
+  removeMaxBy: function (xs, scoreFn) {
+    if (xs.length === 0) {
+      return null;
+    }
+    let bestIndex = 0;
+    let bestItem = xs[bestIndex];
+    let bestScore = scoreFn(bestItem);
+    for (let i = 1; i < xs.length; i++) {
+      let curr = xs[i];
+      let score = scoreFn(curr);
+      if (score > bestScore) {
+        bestIndex = i;
+        bestItem = curr;
+        bestScore = score;
+      }
+    }
+    Arrays.remove(xs, bestIndex);
+    return bestItem;
+  },
 };
 
 function astar(state, start, goal) {
@@ -726,7 +938,7 @@ function astar(state, start, goal) {
       let newCost = cost[curr] + 1;
       if (cost[next] === undefined || newCost < cost[next]) {
         cost[next] = newCost;
-        let priority = newCost + distance2(goal, next);
+        let priority = newCost + distance(goal, next);
         frontier.enqueue(next, priority);
         cameFrom[next] = curr;
       }
