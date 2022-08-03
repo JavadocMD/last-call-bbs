@@ -30,8 +30,8 @@ function getName() {
 }
 
 function onConnect() {
-  scene = TitleScene();
-  // scene = GameScene();
+  // scene = TitleScene();
+  scene = GameScene();
   state = scene.init();
   debug = new Debug();
 }
@@ -81,6 +81,12 @@ var Key = {
   _7: 55,
   _8: 56,
   _9: 57,
+  isNumber: function (key) {
+    return key >= Key._0 && key <= Key._9;
+  },
+  toNumber: function (key) {
+    return key - Key._0;
+  },
 };
 
 var Color = {
@@ -96,6 +102,7 @@ var Char = {
   WALL: "█",
   FLOOR: " ",
   HOBBIT: "☻",
+  HOBBIT_SEL: "☺",
 };
 
 var Event = {
@@ -179,7 +186,8 @@ function TitleScene() {
     drawText(" ═══════a game by javadocmd════════════v0.1════", c, 4, 8);
 
     drawText("press TAB to display menu", c, 6, 14);
-    drawText("press BACKTICK to flip the menu left or right", c, 6, 15);
+    drawText("press ESC to exit a menu", c, 6, 15);
+    drawText("press BACKTICK to flip the menu left or right", c, 6, 16);
 
     state.mode.onRender(state);
   }
@@ -426,6 +434,62 @@ var Work = {
   },
 };
 
+var Hobbit = {
+  Mood: {
+    min: 0,
+    max: 6, // non-inclusive
+    constrain: function (value) {
+      return constrain(Mood.min, value, Mood.max);
+    },
+    toString: function (mood) {
+      switch (mood) {
+        case 0:
+          return "Grumpy";
+        case 1:
+          return "Sad";
+        case 2:
+          return "Glum";
+        case 3:
+          return "Content";
+        case 4:
+          return "Happy";
+        case 5:
+          return "Joyful";
+        default:
+          return "???";
+      }
+    },
+  },
+  Hunger: {
+    min: 0,
+    max: 11, // non-inclusive
+    constrain: function (value) {
+      return constrain(Hunger.min, value, Hunger.max);
+    },
+    toString: function (hunger) {
+      switch (hunger) {
+        case 0:
+        case 1:
+          return "Full";
+        case 2:
+        case 3:
+          return "Peckish";
+        case 4:
+        case 5:
+        case 6:
+        case 7:
+          return "Hungry";
+        case 8:
+        case 9:
+        case 10:
+          return "Starving";
+        default:
+          return "???";
+      }
+    },
+  },
+};
+
 function WorkQueue(initialItems) {
   this.items = []; // all work items
   this.onHold = []; // queue for on-hold items (an item may be in both arrays)
@@ -592,8 +656,7 @@ function GameScene() {
         } else if (key === Key._2) {
           state.mode = Mode.filling;
         } else if (key === Key._3) {
-          // TODO: hobbits menu
-          // state.mode = Mode.hobbits;
+          state.mode = Mode.hobbits;
         }
         return state;
       },
@@ -604,10 +667,78 @@ function GameScene() {
         drawText("Hobbit Home", Color.TEXT, offset + 2, 0);
         drawText("1. dig", Color.TEXT, offset + 1, 1);
         drawText("2. fill", Color.TEXT, offset + 1, 2);
-        // drawText("3. hobbits", Color.TEXT, offset + 1, 3);
+        drawText("3. hobbits", Color.TEXT, offset + 1, 3);
       },
       onEnter: function (state) {},
       onExit: function (state) {},
+    },
+    hobbits: {
+      onInput: function (state, key) {
+        if (key === Key.TAB) {
+          state.mode = Mode.default;
+        } else if (key === Key.ESCAPE) {
+          state.mode = Mode.rootMenu;
+        } else if (key === Key.BACKTICK) {
+          state.menuLeft = !state.menuLeft;
+        } else if (Key.isNumber(key)) {
+          let i = Key.toNumber(key) - 1;
+          if (i >= 0 && i < state.hobbits.length) {
+            state.mode = Mode.hobbitDetail(i);
+          }
+        }
+        return state;
+      },
+      onRender: function (state) {
+        let offset = state.menuLeft ? 0 : 40;
+        drawBox(Color.TEXT, offset, 0, 16, 20);
+        fillArea(" ", Color.BLACK, offset + 1, 1, 14, 18);
+        drawText("Hobbits", Color.TEXT, offset + 2, 0);
+        for (let i = 0; i < state.hobbits.length; i++) {
+          let curr = state.hobbits[i];
+          let text = i + 1 + ". " + curr.name;
+          drawText(text, Color.TEXT, offset + 1, i + 1);
+        }
+      },
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+    hobbitDetail: function (index) {
+      return {
+        onInput: function (state, key) {
+          if (key === Key.TAB) {
+            state.mode = Mode.default;
+          } else if (key === Key.ESCAPE) {
+            state.mode = Mode.hobbits;
+          } else if (key === Key.BACKTICK) {
+            state.menuLeft = !state.menuLeft;
+          }
+          return state;
+        },
+        onRender: function (state) {
+          let offset = state.menuLeft ? 0 : 40;
+          drawBox(Color.TEXT, offset, 0, 16, 20);
+          fillArea(" ", Color.BLACK, offset + 1, 1, 14, 18);
+          drawText("Hobbit Detail", Color.TEXT, offset + 2, 0);
+          let curr = state.hobbits[index];
+          drawTextWrapped(curr.fullName, Color.TEXT, offset + 1, 1, 14);
+          drawText("──────────────", Color.TEXT, offset + 1, 3);
+          drawText("Mood:", Color.TEXT, offset + 1, 4);
+          drawText(Hobbit.Mood.toString(curr.mood), Color.TEXT, offset + 2, 5);
+          drawText("Hunger:", Color.TEXT, offset + 1, 6);
+          drawText(
+            Hobbit.Hunger.toString(curr.hunger),
+            Color.TEXT,
+            offset + 2,
+            7
+          );
+        },
+        onEnter: function (state) {
+          state.selectedHobbit = index;
+        },
+        onExit: function (state) {
+          state.selectedHobbit = null;
+        },
+      };
     },
     digging: {
       onInput: function (state, key) {
@@ -690,6 +821,7 @@ function GameScene() {
       menuLeft: true,
       cursorOn: false,
       cursor: [10, 10],
+      selectedHobbit: null,
       map: [
         "████████████████████████████████████████████████████████".split(""),
         "████████████████████████████████████████████████████████".split(""),
@@ -726,30 +858,44 @@ function GameScene() {
       ]),
       hobbits: [
         {
-          name: "Gundabald Bolger",
+          name: "Gundabald",
+          fullName: "Gundabald Bolger",
           position: [18, 18],
-          // action: Action.GoTo([34, 16]),
           action: ACTION_IDLE,
+          mood: 0,
+          hunger: 10,
         },
         {
-          name: "Frogo Hornfoot",
+          name: "Frogo",
+          fullName: "Frogo Hornfoot",
           position: [26, 16],
           action: ACTION_IDLE,
+          mood: 0,
+          hunger: 10,
         },
         {
           name: "Stumpy",
+          fullName: "Stumpy",
           position: [36, 17],
           action: ACTION_IDLE,
+          mood: 0,
+          hunger: 10,
         },
         {
-          name: "Hamwise Prouse",
+          name: "Hamwise",
+          fullName: "Hamwise Prouse",
           position: [30, 17],
           action: ACTION_IDLE,
+          mood: 0,
+          hunger: 10,
         },
         {
-          name: "Mordo Glugbottle",
+          name: "Mordo",
+          fullName: "Mordo Glugbottle",
           position: [10, 19],
           action: ACTION_IDLE,
+          mood: 0,
+          hunger: 10,
         },
       ],
     };
@@ -782,7 +928,8 @@ function GameScene() {
       let curr = state.hobbits[i];
       let x = curr.position[0];
       let y = curr.position[1];
-      drawText(Char.HOBBIT, Color.WHITE, x, y);
+      let char = state.selectedHobbit === i ? Char.HOBBIT_SEL : Char.HOBBIT;
+      drawText(char, Color.WHITE, x, y);
     }
     // draw modality
     state.mode.onRender(state);
@@ -807,6 +954,8 @@ function GameScene() {
 
 function Debug() {
   this.text = null;
+  this.inc = 0;
+  this.prevLog = null;
   this.log = function (text) {
     if (text === null) {
       this.text = "null";
@@ -815,13 +964,25 @@ function Debug() {
     } else {
       this.text = text;
     }
+    this.prevLog = text;
+  };
+  this.logInc = function (text) {
+    if (this.prevLog === text) {
+      this.inc++;
+    } else {
+      this.inc = 1;
+    }
+    this.log(text);
   };
   this.clear = function () {
     this.text = null;
+    this.prevLog = null;
+    this.inc = 0;
   };
   this.draw = function () {
     if (this.text !== null) {
-      drawText(this.text, Color.TEXT, 0, 0);
+      let txt = this.inc > 0 ? this.text + " " + this.inc : this.text;
+      drawText(txt, Color.TEXT, 0, 0);
     }
   };
 }
