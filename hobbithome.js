@@ -60,7 +60,7 @@ function onInput(key) {
 
 // ======== CONSTANTS ======== //
 
-var Key = {
+const Key = {
   ESCAPE: 27,
   SPACE: 32,
   BACKSPACE: 8,
@@ -89,30 +89,32 @@ var Key = {
   },
 };
 
-var Color = {
+const Color = {
   BLACK: 0,
   FILL: 2,
   DIG: 6,
   GROUND: 8,
+  BUILDING_GHOST: 1,
+  BUILDING: 6,
   TEXT: 13,
   WHITE: 17,
 };
 
-var Char = {
+const Char = {
   WALL: "█",
   FLOOR: " ",
   HOBBIT: "☻",
   HOBBIT_SEL: "☺",
 };
 
-var Event = {
+const Event = {
   GOTO_SCENE: "GOTO_SCENE",
 };
 
 // ======== ENGINE ======== //
 
 function TitleScene() {
-  var Mode = {
+  const Mode = {
     default: {
       onInput: function (state, key) {
         if (key === Key.TAB) {
@@ -200,7 +202,7 @@ function TitleScene() {
   };
 }
 
-var Map = {
+const Map = {
   width: 56,
   height: 20,
   is: function (state, position, char) {
@@ -236,13 +238,12 @@ var Map = {
   },
 };
 
-var ActionResult = {
-  CONTINUE: -1,
-  COMPLETE: 0,
-  CANCELED: 1,
-};
-
-var Action = {
+const Action = {
+  Result: {
+    CONTINUE: -1,
+    COMPLETE: 0,
+    CANCELED: 1,
+  },
   Idle: function () {
     return function Idle(hobbit, state) {
       if (randomInt(7) === 0) {
@@ -251,24 +252,24 @@ var Action = {
           hobbit.position = Arrays.random(ns);
         }
       }
-      return ActionResult.CONTINUE;
+      return Action.Result.CONTINUE;
     };
   },
   Walk: function (path) {
     return function Walk(hobbit, state) {
       // Done?
       if (path.length === 0) {
-        return ActionResult.COMPLETE;
+        return Action.Result.COMPLETE;
       }
       // Walk.
       let next = path.shift();
       if (Map.isWalkable(state, next)) {
         // Step.
         hobbit.position = next;
-        return ActionResult.CONTINUE;
+        return Action.Result.CONTINUE;
       } else {
         // Blocked!
-        return ActionResult.CANCELED;
+        return Action.Result.CANCELED;
       }
     };
   },
@@ -281,7 +282,7 @@ var Action = {
       if (path === null) {
         path = astar(state, hobbit.position, to);
         if (path === null) {
-          return ActionResult.CANCELED;
+          return Action.Result.CANCELED;
         } else {
           walk = Action.Walk(path);
         }
@@ -289,15 +290,15 @@ var Action = {
       // Defer to Walk action.
       let res = walk(hobbit, state);
       switch (res) {
-        case ActionResult.CONTINUE:
-          return ActionResult.CONTINUE;
-        case ActionResult.COMPLETE:
-          return ActionResult.COMPLETE;
-        case ActionResult.CANCELED:
+        case Action.Result.CONTINUE:
+          return Action.Result.CONTINUE;
+        case Action.Result.COMPLETE:
+          return Action.Result.COMPLETE;
+        case Action.Result.CANCELED:
           // Re-navigate next tick.
           path = null;
           walk = null;
-          return ActionResult.CONTINUE;
+          return Action.Result.CONTINUE;
       }
     };
   },
@@ -315,7 +316,7 @@ var Action = {
           }
         );
         if (path === null) {
-          return ActionResult.CANCELED;
+          return Action.Result.CANCELED;
         } else {
           walk = Action.Walk(path);
         }
@@ -323,15 +324,15 @@ var Action = {
       // Defer to Walk action.
       let res = walk(hobbit, state);
       switch (res) {
-        case ActionResult.CONTINUE:
-          return ActionResult.CONTINUE;
-        case ActionResult.COMPLETE:
-          return ActionResult.COMPLETE;
-        case ActionResult.CANCELED:
+        case Action.Result.CONTINUE:
+          return Action.Result.CONTINUE;
+        case Action.Result.COMPLETE:
+          return Action.Result.COMPLETE;
+        case Action.Result.CANCELED:
           // Re-navigate next tick.
           path = null;
           walk = null;
-          return ActionResult.CONTINUE;
+          return Action.Result.CONTINUE;
       }
     };
   },
@@ -343,29 +344,29 @@ var Action = {
       if (go) {
         let res = go(hobbit, state);
         switch (res) {
-          case ActionResult.CONTINUE:
-            return ActionResult.CONTINUE;
-          case ActionResult.COMPLETE:
+          case Action.Result.CONTINUE:
+            return Action.Result.CONTINUE;
+          case Action.Result.COMPLETE:
             go = null;
-            return ActionResult.CONTINUE;
-          case ActionResult.CANCELED:
+            return Action.Result.CONTINUE;
+          case Action.Result.CANCELED:
             state.workQueue.canceled(work);
-            return ActionResult.CANCELED;
+            return Action.Result.CANCELED;
         }
       }
       // Do the fill.
       if (timer > 0) {
         timer--;
-        return ActionResult.CONTINUE;
+        return Action.Result.CONTINUE;
       } else if (Map.isOccupied(state, work.position)) {
         // wait for spot to be empty
-        return ActionResult.CONTINUE;
+        return Action.Result.CONTINUE;
       } else {
         let x = work.position[0];
         let y = work.position[1];
         state.map[y][x] = Char.WALL;
         state.workQueue.completed(work);
-        return ActionResult.COMPLETE;
+        return Action.Result.COMPLETE;
       }
     };
   },
@@ -377,45 +378,85 @@ var Action = {
       if (go) {
         let res = go(hobbit, state);
         switch (res) {
-          case ActionResult.CONTINUE:
-            return ActionResult.CONTINUE;
-          case ActionResult.COMPLETE:
+          case Action.Result.CONTINUE:
+            return Action.Result.CONTINUE;
+          case Action.Result.COMPLETE:
             go = null;
-            return ActionResult.CONTINUE;
-          case ActionResult.CANCELED:
+            return Action.Result.CONTINUE;
+          case Action.Result.CANCELED:
             state.workQueue.canceled(work);
-            return ActionResult.CANCELED;
+            return Action.Result.CANCELED;
         }
       }
       // Do the dig.
       if (timer > 0) {
         timer--;
-        return ActionResult.CONTINUE;
+        return Action.Result.CONTINUE;
       } else {
         let x = work.position[0];
         let y = work.position[1];
         state.map[y][x] = Char.FLOOR;
         state.workQueue.completed(work);
-        return ActionResult.COMPLETE;
+        return Action.Result.COMPLETE;
+      }
+    };
+  },
+  Build: function (work) {
+    let go = Action.GoToAdjacent(work.position);
+    let timer = 10;
+    return function Build(hobbit, state) {
+      // If the building no longer fits, terminate the action.
+      if (!Building.fits(state, work.buildingType, work.position)) {
+        state.workQueue.remove(work);
+        return Action.Result.CANCELED;
+      }
+
+      // Defer to goto action until complete.
+      if (go) {
+        let res = go(hobbit, state);
+        switch (res) {
+          case Action.Result.CONTINUE:
+            return Action.Result.CONTINUE;
+          case Action.Result.COMPLETE:
+            go = null;
+            return Action.Result.CONTINUE;
+          case Action.Result.CANCELED:
+            state.workQueue.canceled(work);
+            return Action.Result.CANCELED;
+        }
+      }
+      // Do the build.
+      if (timer > 0) {
+        timer--;
+        return Action.Result.CONTINUE;
+      } else {
+        state.buildings.push({
+          type: work.buildingType,
+          position: work.position,
+        });
+        state.workQueue.completed(work);
+        return Action.Result.COMPLETE;
       }
     };
   },
   forWork: function (work) {
-    switch (work.type) {
+    switch (work.name) {
       case "Dig":
         return this.Dig(work);
       case "Fill":
         return this.Fill(work);
+      case "Build":
+        return this.Build(work);
       default:
-        throw "Unable to create action for work type " + work.type;
+        throw "Unable to create action for work type " + work.name;
     }
   },
 };
 
-var Work = {
+const Work = {
   Dig: function (position) {
     return {
-      type: "Dig",
+      name: "Dig",
       position: position,
       claimedBy: null,
       onHold: false,
@@ -423,8 +464,17 @@ var Work = {
   },
   Fill: function (position) {
     return {
-      type: "Fill",
+      name: "Fill",
       position: position,
+      claimedBy: null,
+      onHold: false,
+    };
+  },
+  Build: function (buildingType, position) {
+    return {
+      name: "Build",
+      position: position,
+      buildingType: buildingType,
       claimedBy: null,
       onHold: false,
     };
@@ -434,7 +484,7 @@ var Work = {
   },
 };
 
-var Hobbit = {
+const Hobbit = {
   Mood: {
     min: 0,
     max: 6, // non-inclusive
@@ -490,6 +540,41 @@ var Hobbit = {
   },
 };
 
+const Building = {
+  Pantry: {
+    name: "Pantry",
+    size: [3, 4],
+    icon: "p",
+  },
+  draw: function (type, position, isGhost) {
+    const c = isGhost ? Color.BUILDING_GHOST : Color.BUILDING;
+    const x0 = position[0] - Math.floor(type.size[0] / 2);
+    const y0 = position[1] - Math.floor(type.size[1] / 2);
+    const x1 = x0 + type.size[0] - 1;
+    const y1 = y0 + type.size[1] - 1;
+    drawBox(c, x0, y0, type.size[0], type.size[1]);
+    for (let j = y0 + 1; j < y1; j++) {
+      for (let i = x0 + 1; i < x1; i++) {
+        drawText(type.icon, c, i, j);
+      }
+    }
+  },
+  fits: function (state, type, position) {
+    const x0 = position[0] - Math.floor(type.size[0] / 2);
+    const y0 = position[1] - Math.floor(type.size[1] / 2);
+    const x1 = x0 + type.size[0] - 1;
+    const y1 = y0 + type.size[1] - 1;
+    for (let j = y0; j <= y1; j++) {
+      for (let i = x0; i <= x1; i++) {
+        if (!Map.is(state, [i, j], Char.FLOOR)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  },
+};
+
 function WorkQueue(initialItems) {
   this.items = []; // all work items
   this.onHold = []; // queue for on-hold items (an item may be in both arrays)
@@ -536,17 +621,19 @@ function WorkQueue(initialItems) {
   };
 
   this.draw = function () {
-    let xs = this.items;
-    for (let i = 0; i < xs.length; i++) {
-      let curr = xs[i];
-      let x = curr.position[0];
-      let y = curr.position[1];
-      switch (curr.type) {
+    for (let i = 0; i < this.items.length; i++) {
+      const curr = this.items[i];
+      const x = curr.position[0];
+      const y = curr.position[1];
+      switch (curr.name) {
         case "Dig":
           drawText(Char.WALL, Color.DIG, x, y);
           break;
         case "Fill":
           drawText(Char.WALL, Color.FILL, x, y);
+          break;
+        case "Build":
+          Building.draw(curr.buildingType, curr.position, true);
           break;
       }
     }
@@ -586,16 +673,16 @@ function GameScene() {
         let h = state.hobbits[i];
         let result = h.action(h, state);
         switch (result) {
-          case ActionResult.CONTINUE:
+          case Action.Result.CONTINUE:
             break;
-          case ActionResult.COMPLETE:
+          case Action.Result.COMPLETE:
             h.action = ACTION_IDLE;
             break;
-          case ActionResult.CANCELED:
+          case Action.Result.CANCELED:
             h.action = ACTION_IDLE;
             break;
           default:
-            throw "ActionResult not valid.";
+            throw "Action.Result not valid.";
         }
       }
     }
@@ -633,7 +720,7 @@ function GameScene() {
     }
   }
 
-  var Mode = {
+  const Mode = {
     default: {
       onInput: function (state, key) {
         if (key === Key.TAB) {
@@ -656,6 +743,8 @@ function GameScene() {
         } else if (key === Key._2) {
           state.mode = Mode.filling;
         } else if (key === Key._3) {
+          state.mode = Mode.build;
+        } else if (key === Key._4) {
           state.mode = Mode.hobbits;
         }
         return state;
@@ -667,7 +756,8 @@ function GameScene() {
         drawText("Hobbit Home", Color.TEXT, offset + 2, 0);
         drawText("1. dig", Color.TEXT, offset + 1, 1);
         drawText("2. fill", Color.TEXT, offset + 1, 2);
-        drawText("3. hobbits", Color.TEXT, offset + 1, 3);
+        drawText("3. build", Color.TEXT, offset + 1, 3);
+        drawText("4. hobbits", Color.TEXT, offset + 1, 4);
       },
       onEnter: function (state) {},
       onExit: function (state) {},
@@ -751,7 +841,7 @@ function GameScene() {
             if (Map.is(state, state.cursor, Char.WALL)) {
               state.workQueue.add(Work.Dig(state.cursor));
             }
-          } else if (work.type === "Dig") {
+          } else if (work.name === "Dig") {
             // terminate existing dig orders
             state.workQueue.remove(work);
             if (work.claimedBy) {
@@ -786,7 +876,7 @@ function GameScene() {
             if (Map.is(state, state.cursor, Char.FLOOR)) {
               state.workQueue.add(Work.Fill(state.cursor));
             }
-          } else if (work.type === "Fill") {
+          } else if (work.name === "Fill") {
             // terminate existing fill orders
             state.workQueue.remove(work);
             if (work.claimedBy) {
@@ -809,6 +899,71 @@ function GameScene() {
         state.cursorOn = false;
         return state;
       },
+    },
+    build: {
+      onInput: function (state, key) {
+        if (key === Key.TAB) {
+          state.mode = Mode.default;
+        } else if (key === Key.ESCAPE) {
+          state.mode = Mode.rootMenu;
+        } else if (key === Key.BACKTICK) {
+          state.menuLeft = !state.menuLeft;
+        } else if (key === Key._1) {
+          state.mode = Mode.building(Building.Pantry);
+        }
+        return state;
+      },
+      onRender: function (state) {
+        let offset = state.menuLeft ? 0 : 40;
+        drawBox(Color.TEXT, offset, 0, 16, 20);
+        fillArea(" ", Color.BLACK, offset + 1, 1, 14, 18);
+        drawText("Build", Color.TEXT, offset + 2, 0);
+        drawText("1. Pantry", Color.TEXT, offset + 1, 1);
+        drawText("2. Bedroom", Color.TEXT, offset + 1, 2);
+        drawText("3. Dining Room", Color.TEXT, offset + 1, 3);
+        drawText("4. Farm", Color.TEXT, offset + 1, 4);
+        drawText("5. Kitchen", Color.TEXT, offset + 1, 5);
+        drawText("6. Tavern", Color.TEXT, offset + 1, 6);
+        drawText("7. Workshop", Color.TEXT, offset + 1, 7);
+      },
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+    building: function (buildingType) {
+      return {
+        onInput: function (state, key) {
+          if (key === Key.ESCAPE) {
+            state.mode = Mode.rootMenu;
+          } else if (key === Key.ENTER) {
+            let work = state.workQueue.at(state.cursor);
+            if (!work) {
+              if (Building.fits(state, buildingType, state.cursor)) {
+                state.workQueue.add(Work.Build(buildingType, state.cursor));
+              }
+            } else if (work.name === "Build") {
+              // terminate existing build orders
+              state.workQueue.remove(work);
+              if (work.claimedBy) {
+                work.claimedBy.action = ACTION_IDLE;
+              }
+            }
+            // leave non-build orders as-is
+          }
+          return state;
+        },
+        onRender: function (state) {
+          drawBox(Color.TEXT, 0, 0, 56, 1);
+          drawText("building (ENTER to mark, ESC to cancel)", Color.TEXT, 1, 0);
+        },
+        onEnter: function (state) {
+          state.cursorOn = true;
+          return state;
+        },
+        onExit: function (state) {
+          state.cursorOn = false;
+          return state;
+        },
+      };
     },
   };
 
@@ -898,6 +1053,12 @@ function GameScene() {
           hunger: 10,
         },
       ],
+      buildings: [
+        {
+          type: Building.Pantry,
+          position: [14, 14],
+        },
+      ],
     };
   }
 
@@ -921,23 +1082,28 @@ function GameScene() {
         drawText(state.map[j][i], Color.GROUND, i, j);
       }
     }
+    // draw buildings
+    for (let i = 0; i < state.buildings.length; i++) {
+      const curr = state.buildings[i];
+      Building.draw(curr.type, curr.position, false);
+    }
     // draw work items
     state.workQueue.draw();
     // draw hobbits
     for (let i = 0; i < state.hobbits.length; i++) {
-      let curr = state.hobbits[i];
-      let x = curr.position[0];
-      let y = curr.position[1];
-      let char = state.selectedHobbit === i ? Char.HOBBIT_SEL : Char.HOBBIT;
+      const curr = state.hobbits[i];
+      const x = curr.position[0];
+      const y = curr.position[1];
+      const char = state.selectedHobbit === i ? Char.HOBBIT_SEL : Char.HOBBIT;
       drawText(char, Color.WHITE, x, y);
     }
     // draw modality
     state.mode.onRender(state);
     // draw cursor
     if (state.cursorOn) {
-      let color = state.anim ? Color.WHITE : Color.GROUND;
-      let x = state.cursor[0];
-      let y = state.cursor[1];
+      const color = state.anim ? Color.WHITE : Color.GROUND;
+      const x = state.cursor[0];
+      const y = state.cursor[1];
       drawText("X", color, x, y);
     }
   }
@@ -1046,7 +1212,7 @@ function constrain(min, value, max) {
   }
 }
 
-var Arrays = {
+const Arrays = {
   random: function (xs) {
     return xs.length > 0 ? xs[randomInt(xs.length)] : null;
   },
