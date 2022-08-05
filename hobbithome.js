@@ -238,22 +238,29 @@ const Map = {
   },
 };
 
+const Cursor = {
+  on: function (size) {
+    return {
+      size: size,
+    };
+  },
+  OFF: null,
+};
+
 const Action = {
   Result: {
     CONTINUE: -1,
     COMPLETE: 0,
     CANCELED: 1,
   },
-  Idle: function () {
-    return function Idle(hobbit, state) {
-      if (randomInt(7) === 0) {
-        let ns = Map.walkableNeighbors(state, hobbit.position);
-        if (notEmpty(ns)) {
-          hobbit.position = Arrays.random(ns);
-        }
+  Idle: function Idle(hobbit, state) {
+    if (randomInt(7) === 0) {
+      let ns = Map.walkableNeighbors(state, hobbit.position);
+      if (notEmpty(ns)) {
+        hobbit.position = Arrays.random(ns);
       }
-      return Action.Result.CONTINUE;
-    };
+    }
+    return Action.Result.CONTINUE;
   },
   Walk: function (path) {
     return function Walk(hobbit, state) {
@@ -485,6 +492,16 @@ const Work = {
 };
 
 const Hobbit = {
+  create: function (shortName, fullName, position) {
+    return {
+      name: shortName,
+      fullName: fullName,
+      position: position,
+      action: Action.Idle,
+      mood: 0,
+      hunger: 10,
+    };
+  },
   Mood: {
     min: 0,
     max: 6, // non-inclusive
@@ -546,24 +563,55 @@ const Building = {
     size: [3, 4],
     icon: "p",
   },
+  Bedroom: {
+    name: "Bedroom",
+    size: [3, 3],
+    icon: "B",
+  },
+  DiningRoom: {
+    name: "Dining Room",
+    size: [4, 4],
+    icon: "D",
+  },
+  Farm: {
+    name: "Farm",
+    size: [3, 3],
+    icon: "f",
+  },
+  Kitchen: {
+    name: "Kitchen",
+    size: [3, 3],
+    icon: "k",
+  },
+  Tavern: {
+    name: "Tavern",
+    size: [3, 3],
+    icon: "t",
+  },
+  Workshop: {
+    name: "Workshop",
+    size: [3, 3],
+    icon: "W",
+  },
   draw: function (type, position, isGhost) {
     const c = isGhost ? Color.BUILDING_GHOST : Color.BUILDING;
-    const x0 = position[0] - Math.floor(type.size[0] / 2);
-    const y0 = position[1] - Math.floor(type.size[1] / 2);
-    const x1 = x0 + type.size[0] - 1;
-    const y1 = y0 + type.size[1] - 1;
-    drawBox(c, x0, y0, type.size[0], type.size[1]);
-    for (let j = y0 + 1; j < y1; j++) {
-      for (let i = x0 + 1; i < x1; i++) {
-        drawText(type.icon, c, i, j);
-      }
-    }
+    const w = type.size[0];
+    const h = type.size[1];
+    const x = position[0] - Math.floor(w / 2);
+    const y = position[1] - Math.floor(h / 2);
+    drawBox(c, x, y, w, h);
+    fillArea(type.icon, c, x + 1, y + 1, w - 2, h - 2);
   },
   fits: function (state, type, position) {
-    const x0 = position[0] - Math.floor(type.size[0] / 2);
-    const y0 = position[1] - Math.floor(type.size[1] / 2);
-    const x1 = x0 + type.size[0] - 1;
-    const y1 = y0 + type.size[1] - 1;
+    const w = type.size[0];
+    const h = type.size[1];
+    const x0 = position[0] - Math.floor(w / 2);
+    const y0 = position[1] - Math.floor(h / 2);
+    const x1 = x0 + w - 1;
+    const y1 = y0 + h - 1;
+    if (x0 < 0 || y0 < 0 || x1 >= Map.width || y1 >= Map.height) {
+      return false;
+    }
     for (let j = y0; j <= y1; j++) {
       for (let i = x0; i <= x1; i++) {
         if (!Map.is(state, [i, j], Char.FLOOR)) {
@@ -571,7 +619,11 @@ const Building = {
         }
       }
     }
+    // TODO: check for other buildings
     return true;
+  },
+  overlaps: function (aPosition, aType, bPosition, bType) {
+    return false; // TODO: implement
   },
 };
 
@@ -641,8 +693,6 @@ function WorkQueue(initialItems) {
 }
 
 function GameScene() {
-  let ACTION_IDLE = Action.Idle();
-
   function init() {
     return loadState();
   }
@@ -676,10 +726,10 @@ function GameScene() {
           case Action.Result.CONTINUE:
             break;
           case Action.Result.COMPLETE:
-            h.action = ACTION_IDLE;
+            h.action = Action.Idle;
             break;
           case Action.Result.CANCELED:
-            h.action = ACTION_IDLE;
+            h.action = Action.Idle;
             break;
           default:
             throw "Action.Result not valid.";
@@ -692,17 +742,17 @@ function GameScene() {
 
   function onInput(state, key) {
     // cursor input
-    if (state.cursorOn) {
-      let x = state.cursor[0];
-      let y = state.cursor[1];
+    if (state.cursor) {
+      let x = state.cursorPos[0];
+      let y = state.cursorPos[1];
       if (key === Key.LEFT) {
-        state.cursor = [constrain(0, x - 1, 56), y];
+        state.cursorPos = [constrain(0, x - 1, 56), y];
       } else if (key === Key.RIGHT) {
-        state.cursor = [constrain(0, x + 1, 56), y];
+        state.cursorPos = [constrain(0, x + 1, 56), y];
       } else if (key === Key.UP) {
-        state.cursor = [x, constrain(0, y - 1, 20)];
+        state.cursorPos = [x, constrain(0, y - 1, 20)];
       } else if (key === Key.DOWN) {
-        state.cursor = [x, constrain(0, y + 1, 20)];
+        state.cursorPos = [x, constrain(0, y + 1, 20)];
       }
     }
     // modal input
@@ -834,18 +884,20 @@ function GameScene() {
       onInput: function (state, key) {
         if (key === Key.ESCAPE) {
           state.mode = Mode.rootMenu;
+        } else if (key == Key.TAB) {
+          state.mode = Mode.default;
         } else if (key === Key.ENTER) {
-          let work = state.workQueue.at(state.cursor);
+          let work = state.workQueue.at(state.cursorPos);
           if (!work) {
             // no existing order, create one
-            if (Map.is(state, state.cursor, Char.WALL)) {
-              state.workQueue.add(Work.Dig(state.cursor));
+            if (Map.is(state, state.cursorPos, Char.WALL)) {
+              state.workQueue.add(Work.Dig(state.cursorPos));
             }
           } else if (work.name === "Dig") {
             // terminate existing dig orders
             state.workQueue.remove(work);
             if (work.claimedBy) {
-              work.claimedBy.action = ACTION_IDLE;
+              work.claimedBy.action = Action.Idle;
             }
           }
           // leave non-dig orders as-is
@@ -857,11 +909,11 @@ function GameScene() {
         drawText("digging (ENTER to mark, ESC to cancel)", Color.TEXT, 1, 0);
       },
       onEnter: function (state) {
-        state.cursorOn = true;
+        state.cursor = Cursor.on([1, 1]);
         return state;
       },
       onExit: function (state) {
-        state.cursorOn = false;
+        state.cursor = Cursor.OFF;
         return state;
       },
     },
@@ -869,18 +921,20 @@ function GameScene() {
       onInput: function (state, key) {
         if (key === Key.ESCAPE) {
           state.mode = Mode.rootMenu;
+        } else if (key == Key.TAB) {
+          state.mode = Mode.default;
         } else if (key === Key.ENTER) {
-          let work = state.workQueue.at(state.cursor);
+          let work = state.workQueue.at(state.cursorPos);
           if (!work) {
             // no existing order, create one
-            if (Map.is(state, state.cursor, Char.FLOOR)) {
-              state.workQueue.add(Work.Fill(state.cursor));
+            if (Map.is(state, state.cursorPos, Char.FLOOR)) {
+              state.workQueue.add(Work.Fill(state.cursorPos));
             }
           } else if (work.name === "Fill") {
             // terminate existing fill orders
             state.workQueue.remove(work);
             if (work.claimedBy) {
-              work.claimedBy.action = ACTION_IDLE;
+              work.claimedBy.action = Action.Idle;
             }
           }
           // leave non-fill orders as-is
@@ -892,11 +946,11 @@ function GameScene() {
         drawText("filling (ENTER to mark, ESC to cancel)", Color.TEXT, 1, 0);
       },
       onEnter: function (state) {
-        state.cursorOn = true;
+        state.cursor = Cursor.on([1, 1]);
         return state;
       },
       onExit: function (state) {
-        state.cursorOn = false;
+        state.cursor = Cursor.OFF;
         return state;
       },
     },
@@ -910,6 +964,18 @@ function GameScene() {
           state.menuLeft = !state.menuLeft;
         } else if (key === Key._1) {
           state.mode = Mode.building(Building.Pantry);
+        } else if (key === Key._2) {
+          state.mode = Mode.building(Building.Bedroom);
+        } else if (key === Key._3) {
+          state.mode = Mode.building(Building.DiningRoom);
+        } else if (key === Key._4) {
+          state.mode = Mode.building(Building.Farm);
+        } else if (key === Key._5) {
+          state.mode = Mode.building(Building.Kitchen);
+        } else if (key === Key._6) {
+          state.mode = Mode.building(Building.Tavern);
+        } else if (key === Key._7) {
+          state.mode = Mode.building(Building.Workshop);
         }
         return state;
       },
@@ -933,18 +999,21 @@ function GameScene() {
       return {
         onInput: function (state, key) {
           if (key === Key.ESCAPE) {
-            state.mode = Mode.rootMenu;
+            state.mode = Mode.build;
+          } else if (key == Key.TAB) {
+            state.mode = Mode.default;
           } else if (key === Key.ENTER) {
-            let work = state.workQueue.at(state.cursor);
+            let work = state.workQueue.at(state.cursorPos);
             if (!work) {
-              if (Building.fits(state, buildingType, state.cursor)) {
-                state.workQueue.add(Work.Build(buildingType, state.cursor));
+              if (Building.fits(state, buildingType, state.cursorPos)) {
+                state.workQueue.add(Work.Build(buildingType, state.cursorPos));
+                state.mode = Mode.build;
               }
             } else if (work.name === "Build") {
               // terminate existing build orders
               state.workQueue.remove(work);
               if (work.claimedBy) {
-                work.claimedBy.action = ACTION_IDLE;
+                work.claimedBy.action = Action.Idle;
               }
             }
             // leave non-build orders as-is
@@ -956,11 +1025,11 @@ function GameScene() {
           drawText("building (ENTER to mark, ESC to cancel)", Color.TEXT, 1, 0);
         },
         onEnter: function (state) {
-          state.cursorOn = true;
+          state.cursor = Cursor.on(buildingType.size);
           return state;
         },
         onExit: function (state) {
-          state.cursorOn = false;
+          state.cursor = Cursor.OFF;
           return state;
         },
       };
@@ -974,8 +1043,8 @@ function GameScene() {
       mode: Mode.default,
       prevMode: Mode.default,
       menuLeft: true,
-      cursorOn: false,
-      cursor: [10, 10],
+      cursor: Cursor.OFF,
+      cursorPos: [10, 10],
       selectedHobbit: null,
       map: [
         "████████████████████████████████████████████████████████".split(""),
@@ -1012,46 +1081,11 @@ function GameScene() {
         Work.Fill([19, 19]),
       ]),
       hobbits: [
-        {
-          name: "Gundabald",
-          fullName: "Gundabald Bolger",
-          position: [18, 18],
-          action: ACTION_IDLE,
-          mood: 0,
-          hunger: 10,
-        },
-        {
-          name: "Frogo",
-          fullName: "Frogo Hornfoot",
-          position: [26, 16],
-          action: ACTION_IDLE,
-          mood: 0,
-          hunger: 10,
-        },
-        {
-          name: "Stumpy",
-          fullName: "Stumpy",
-          position: [36, 17],
-          action: ACTION_IDLE,
-          mood: 0,
-          hunger: 10,
-        },
-        {
-          name: "Hamwise",
-          fullName: "Hamwise Prouse",
-          position: [30, 17],
-          action: ACTION_IDLE,
-          mood: 0,
-          hunger: 10,
-        },
-        {
-          name: "Mordo",
-          fullName: "Mordo Glugbottle",
-          position: [10, 19],
-          action: ACTION_IDLE,
-          mood: 0,
-          hunger: 10,
-        },
+        Hobbit.create("Gundabald", "Gundabald Bolger", [18, 18]),
+        Hobbit.create("Frogo", "Frogo Hornfoot", [26, 16]),
+        Hobbit.create("Stumpy", "Stumpy", [36, 17]),
+        Hobbit.create("Hamwise", "Hamwise Prouse", [30, 17]),
+        Hobbit.create("Mordo", "Mordo Glugbottle", [20, 19]),
       ],
       buildings: [
         {
@@ -1100,11 +1134,13 @@ function GameScene() {
     // draw modality
     state.mode.onRender(state);
     // draw cursor
-    if (state.cursorOn) {
+    if (state.cursor) {
       const color = state.anim ? Color.WHITE : Color.GROUND;
-      const x = state.cursor[0];
-      const y = state.cursor[1];
-      drawText("X", color, x, y);
+      const w = state.cursor.size[0];
+      const h = state.cursor.size[1];
+      const x = state.cursorPos[0] - Math.floor(w / 2);
+      const y = state.cursorPos[1] - Math.floor(h / 2);
+      fillArea("X", color, x, y, w, h);
     }
   }
 
