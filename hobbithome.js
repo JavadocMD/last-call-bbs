@@ -678,8 +678,8 @@ function WorkQueue(initialItems) {
     Arrays.removeItem(this.items, work);
   };
 
-  this.tick = function () {
-    // on hold work is trickled back into queue, one per tick
+  this.retry = function () {
+    // allow an on-hold work item to be retried
     if (notEmpty(this.onHold)) {
       let w = this.onHold.shift();
       w.onHold = false;
@@ -721,12 +721,19 @@ function GameScene() {
   }
 
   function onUpdate(state) {
-    state.clock = (state.clock + 1) % 30;
-    state.anim = Math.floor(state.clock / 15);
+    state.frame = (state.frame + 1) % 30;
+    state.anim = Math.floor(state.frame / 15);
+    if (state.frame === 0) {
+      state.clock = (state.clock + 1) % 65536;
+    }
+
+    // periodically allow a previously held job to be retried
+    if (state.clock % 5 === 0) {
+      state.workQueue.retry();
+    }
 
     // twice per second, process work/actions
-    if (state.clock % 15 === 0) {
-      state.workQueue.tick();
+    if (state.frame % 15 === 0) {
       // assign work to idle hobbits
       let unclaimedWork = state.workQueue.getUnassigned();
       let idleHobbits = state.hobbits.filter(function (x) {
@@ -1063,7 +1070,8 @@ function GameScene() {
 
   function initialState() {
     return {
-      clock: 0, // frame clock [0,30)
+      clock: 0, // seconds clock [0,65536)
+      frame: 0, // frame clock [0,30)
       anim: 0, // animation clock [0,1]
       mode: Mode.default,
       prevMode: Mode.default,
