@@ -409,11 +409,11 @@ const Action = {
     };
   },
   Build: function (work) {
-    let go = Action.GoToAdjacent(work.position);
+    let go = Action.GoTo(work.position);
     let timer = 10;
     return function Build(hobbit, state) {
       // If the building no longer fits, terminate the action.
-      if (!Building.fits(state, work.buildingType, work.position)) {
+      if (!Building.fits(state, work)) {
         state.workQueue.remove(work);
         return Action.Result.CANCELED;
       }
@@ -437,10 +437,9 @@ const Action = {
         timer--;
         return Action.Result.CONTINUE;
       } else {
-        state.buildings.push({
-          type: work.buildingType,
-          position: work.position,
-        });
+        state.buildings.push(
+          Building.instance(work.buildingType, work.position)
+        );
         state.workQueue.completed(work);
         return Action.Result.COMPLETE;
       }
@@ -457,37 +456,6 @@ const Action = {
       default:
         throw "Unable to create action for work type " + work.name;
     }
-  },
-};
-
-const Work = {
-  Dig: function (position) {
-    return {
-      name: "Dig",
-      position: position,
-      claimedBy: null,
-      onHold: false,
-    };
-  },
-  Fill: function (position) {
-    return {
-      name: "Fill",
-      position: position,
-      claimedBy: null,
-      onHold: false,
-    };
-  },
-  Build: function (buildingType, position) {
-    return {
-      name: "Build",
-      position: position,
-      buildingType: buildingType,
-      claimedBy: null,
-      onHold: false,
-    };
-  },
-  isUnassigned: function (x) {
-    return x.claimedBy === null && x.onHold === false;
   },
 };
 
@@ -593,25 +561,34 @@ const Building = {
     size: [3, 3],
     icon: "W",
   },
-  draw: function (type, position, isGhost) {
+  instance: function (type, position) {
+    return {
+      type: type,
+      box: new Box(position, type.size),
+    };
+  },
+  draw: function (type, box, isGhost) {
     const c = isGhost ? Color.BUILDING_GHOST : Color.BUILDING;
-    const w = type.size[0];
-    const h = type.size[1];
-    const x = position[0] - Math.floor(w / 2);
-    const y = position[1] - Math.floor(h / 2);
+    const w = box.size[0];
+    const h = box.size[1];
+    const x = box.corner[0];
+    const y = box.corner[1];
     drawBox(c, x, y, w, h);
     fillArea(type.icon, c, x + 1, y + 1, w - 2, h - 2);
   },
-  fits: function (state, type, position) {
-    const w = type.size[0];
-    const h = type.size[1];
-    const x0 = position[0] - Math.floor(w / 2);
-    const y0 = position[1] - Math.floor(h / 2);
+  fits: function (state, work) {
+    // assumes work is a Build work item
+    const w = work.box.size[0];
+    const h = work.box.size[1];
+    const x0 = work.box.corner[0];
+    const y0 = work.box.corner[1];
     const x1 = x0 + w - 1;
     const y1 = y0 + h - 1;
+    // do not build off the map
     if (x0 < 0 || y0 < 0 || x1 >= Map.width || y1 >= Map.height) {
       return false;
     }
+    // only build on open floor
     for (let j = y0; j <= y1; j++) {
       for (let i = x0; i <= x1; i++) {
         if (!Map.is(state, [i, j], Char.FLOOR)) {
@@ -619,11 +596,57 @@ const Building = {
         }
       }
     }
-    // TODO: check for other buildings
+    // check for other buildings
+    for (let i = 0; i < state.buildings.length; i++) {
+      let curr = state.buildings[i];
+      if (curr.box.overlaps(work.box)) {
+        return false;
+      }
+    }
+    // check build work orders
+    for (let i = 0; i < state.workQueue.items.length; i++) {
+      let curr = state.workQueue.items[i];
+      if (
+        curr !== work &&
+        curr.name === "Build" &&
+        curr.box.overlaps(work.box)
+      ) {
+        return false;
+      }
+    }
     return true;
   },
-  overlaps: function (aPosition, aType, bPosition, bType) {
-    return false; // TODO: implement
+};
+
+const Work = {
+  Dig: function (position) {
+    return {
+      name: "Dig",
+      position: position,
+      claimedBy: null,
+      onHold: false,
+    };
+  },
+  Fill: function (position) {
+    return {
+      name: "Fill",
+      position: position,
+      claimedBy: null,
+      onHold: false,
+    };
+  },
+  Build: function (buildingType, box) {
+    return {
+      name: "Build",
+      position: box.center,
+      box: box,
+      buildingType: buildingType,
+      claimedBy: null,
+      onHold: false,
+    };
+  },
+  isUnassigned: function (x) {
+    return x.claimedBy === null && x.onHold === false;
   },
 };
 
@@ -685,7 +708,7 @@ function WorkQueue(initialItems) {
           drawText(Char.WALL, Color.FILL, x, y);
           break;
         case "Build":
-          Building.draw(curr.buildingType, curr.position, true);
+          Building.draw(curr.buildingType, curr.box, true);
           break;
       }
     }
@@ -1003,10 +1026,12 @@ function GameScene() {
           } else if (key == Key.TAB) {
             state.mode = Mode.default;
           } else if (key === Key.ENTER) {
-            let work = state.workQueue.at(state.cursorPos);
+            const work = state.workQueue.at(state.cursorPos);
             if (!work) {
-              if (Building.fits(state, buildingType, state.cursorPos)) {
-                state.workQueue.add(Work.Build(buildingType, state.cursorPos));
+              const box = new Box(state.cursorPos, buildingType.size);
+              const newWork = Work.Build(buildingType, box);
+              if (Building.fits(state, newWork)) {
+                state.workQueue.add(newWork);
                 state.mode = Mode.build;
               }
             } else if (work.name === "Build") {
@@ -1087,12 +1112,7 @@ function GameScene() {
         Hobbit.create("Hamwise", "Hamwise Prouse", [30, 17]),
         Hobbit.create("Mordo", "Mordo Glugbottle", [20, 19]),
       ],
-      buildings: [
-        {
-          type: Building.Pantry,
-          position: [14, 14],
-        },
-      ],
+      buildings: [Building.instance(Building.Pantry, [14, 14])],
     };
   }
 
@@ -1119,7 +1139,7 @@ function GameScene() {
     // draw buildings
     for (let i = 0; i < state.buildings.length; i++) {
       const curr = state.buildings[i];
-      Building.draw(curr.type, curr.position, false);
+      Building.draw(curr.type, curr.box, false);
     }
     // draw work items
     state.workQueue.draw();
@@ -1186,6 +1206,29 @@ function Debug() {
       let txt = this.inc > 0 ? this.text + " " + this.inc : this.text;
       drawText(txt, Color.TEXT, 0, 0);
     }
+  };
+}
+
+function Box(center, size) {
+  this.center = center;
+  this.size = size;
+  this.radius = [size[0] / 2, size[1] / 2]; // warning: non-integer values!
+  this.corner = [
+    center[0] - Math.floor(this.radius[0]),
+    center[1] - Math.floor(this.radius[1]),
+  ];
+  this.overlaps = function (that) {
+    const dx = that.corner[0] - this.corner[0];
+    const px = that.radius[0] + this.radius[0] - Math.abs(dx);
+    if (px <= 0) {
+      return false;
+    }
+    const dy = that.corner[1] - this.corner[1];
+    const py = that.radius[1] + this.radius[1] - Math.abs(dy);
+    if (py <= 0) {
+      return false;
+    }
+    return true;
   };
 }
 
