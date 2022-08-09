@@ -114,41 +114,6 @@ const Event = {
 // ======== ENGINE ======== //
 
 function TitleScene() {
-  const Mode = {
-    default: {
-      onInput: function (state, key) {
-        if (key === Key.TAB) {
-          state.mode = Mode.rootMenu;
-        }
-        return state;
-      },
-      onRender: function (state) {},
-      onEnter: function (state) {},
-      onExit: function (state) {},
-    },
-    rootMenu: {
-      onInput: function (state, key) {
-        if (key === Key.TAB || key === Key.ESCAPE) {
-          state.mode = Mode.default;
-        } else if (key === Key.BACKTICK) {
-          state.menuLeft = !state.menuLeft;
-        } else if (key === Key._1) {
-          return { event: Event.GOTO_SCENE, scene: GameScene };
-        }
-        return state;
-      },
-      onRender: function (state) {
-        let offset = state.menuLeft ? 0 : 40;
-        drawBox(Color.TEXT, offset, 0, 16, 20);
-        fillArea(" ", Color.BLACK, offset + 1, 1, 14, 18);
-        drawText("Hobbit Home", Color.TEXT, offset + 2, 0);
-        drawText("1. start game", Color.TEXT, offset + 1, 1);
-      },
-      onEnter: function (state) {},
-      onExit: function (state) {},
-    },
-  };
-
   function init() {
     return {
       mode: Mode.default,
@@ -193,6 +158,41 @@ function TitleScene() {
 
     state.mode.onRender(state);
   }
+
+  const Mode = {
+    default: {
+      onInput: function (state, key) {
+        if (key === Key.TAB) {
+          state.mode = Mode.rootMenu;
+        }
+        return state;
+      },
+      onRender: function (state) {},
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+    rootMenu: {
+      onInput: function (state, key) {
+        if (key === Key.TAB || key === Key.ESCAPE) {
+          state.mode = Mode.default;
+        } else if (key === Key.BACKTICK) {
+          state.menuLeft = !state.menuLeft;
+        } else if (key === Key._1) {
+          return { event: Event.GOTO_SCENE, scene: GameScene };
+        }
+        return state;
+      },
+      onRender: function (state) {
+        let offset = state.menuLeft ? 0 : 40;
+        drawBox(Color.TEXT, offset, 0, 16, 20);
+        fillArea(" ", Color.BLACK, offset + 1, 1, 14, 18);
+        drawText("Hobbit Home", Color.TEXT, offset + 2, 0);
+        drawText("1. start game", Color.TEXT, offset + 1, 1);
+      },
+      onEnter: function (state) {},
+      onExit: function (state) {},
+    },
+  };
 
   return {
     init: init,
@@ -800,6 +800,110 @@ function GameScene() {
     }
   }
 
+  function initialState() {
+    return {
+      clock: 0, // seconds clock [0,65536)
+      frame: 0, // frame clock [0,30)
+      anim: 0, // animation clock [0,1]
+      mode: Mode.default,
+      prevMode: Mode.default,
+      menuLeft: true,
+      cursor: Cursor.OFF,
+      cursorPos: [10, 10],
+      selectedHobbit: null,
+      map: [
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "████████████████████████████████████████████████████████".split(""),
+        "███████████████████████████████████████████████████████ ".split(""),
+        "█████████   ██████████████████████████  █████████████   ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+        "                                                        ".split(""),
+      ],
+      workQueue: new WorkQueue([
+        Work.Dig([0, 0]),
+        Work.Dig([0, 1]),
+        Work.Dig([1, 0]),
+        Work.Dig([3, 11]),
+        Work.Dig([4, 11]),
+        Work.Dig([5, 11]),
+        Work.Dig([3, 10]),
+        Work.Dig([4, 10]),
+        Work.Dig([5, 10]),
+        Work.Fill([19, 19]),
+      ]),
+      hobbits: [
+        Hobbit.create("Gundabald", "Gundabald Bolger", [18, 18]),
+        Hobbit.create("Frogo", "Frogo Hornfoot", [26, 16]),
+        Hobbit.create("Stumpy", "Stumpy", [36, 17]),
+        Hobbit.create("Hamwise", "Hamwise Prouse", [30, 17]),
+        Hobbit.create("Mordo", "Mordo Glugbottle", [20, 19]),
+      ],
+      buildings: [Building.instance(Building.Pantry, [14, 14])],
+    };
+  }
+
+  function loadState() {
+    let data = loadData();
+    if (data === "") {
+      return initialState();
+    } else {
+      return JSON.parse(data);
+    }
+  }
+
+  function saveState(state) {
+    saveData(JSON.stringify(state));
+  }
+
+  function onRender(state) {
+    // draw map
+    for (let j = 0; j < 20; j++) {
+      for (let i = 0; i < 56; i++) {
+        drawText(state.map[j][i], Color.GROUND, i, j);
+      }
+    }
+    // draw buildings
+    for (let i = 0; i < state.buildings.length; i++) {
+      const curr = state.buildings[i];
+      Building.draw(curr.type, curr.box, false);
+    }
+    // draw work items
+    state.workQueue.draw();
+    // draw hobbits
+    for (let i = 0; i < state.hobbits.length; i++) {
+      const curr = state.hobbits[i];
+      const x = curr.position[0];
+      const y = curr.position[1];
+      const char = state.selectedHobbit === i ? Char.HOBBIT_SEL : Char.HOBBIT;
+      drawText(char, Color.WHITE, x, y);
+    }
+    // draw modality
+    state.mode.onRender(state);
+    // draw cursor
+    if (state.cursor) {
+      const color = state.anim ? Color.WHITE : Color.GROUND;
+      const w = state.cursor.size[0];
+      const h = state.cursor.size[1];
+      const x = state.cursorPos[0] - Math.floor(w / 2);
+      const y = state.cursorPos[1] - Math.floor(h / 2);
+      fillArea("X", color, x, y, w, h);
+    }
+  }
+
   const Mode = {
     default: {
       onInput: function (state, key) {
@@ -1067,110 +1171,6 @@ function GameScene() {
       };
     },
   };
-
-  function initialState() {
-    return {
-      clock: 0, // seconds clock [0,65536)
-      frame: 0, // frame clock [0,30)
-      anim: 0, // animation clock [0,1]
-      mode: Mode.default,
-      prevMode: Mode.default,
-      menuLeft: true,
-      cursor: Cursor.OFF,
-      cursorPos: [10, 10],
-      selectedHobbit: null,
-      map: [
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "████████████████████████████████████████████████████████".split(""),
-        "███████████████████████████████████████████████████████ ".split(""),
-        "█████████   ██████████████████████████  █████████████   ".split(""),
-        "                                                        ".split(""),
-        "                                                        ".split(""),
-        "                                                        ".split(""),
-        "                                                        ".split(""),
-        "                                                        ".split(""),
-        "                                                        ".split(""),
-        "                                                        ".split(""),
-        "                                                        ".split(""),
-      ],
-      workQueue: new WorkQueue([
-        Work.Dig([0, 0]),
-        Work.Dig([0, 1]),
-        Work.Dig([1, 0]),
-        Work.Dig([3, 11]),
-        Work.Dig([4, 11]),
-        Work.Dig([5, 11]),
-        Work.Dig([3, 10]),
-        Work.Dig([4, 10]),
-        Work.Dig([5, 10]),
-        Work.Fill([19, 19]),
-      ]),
-      hobbits: [
-        Hobbit.create("Gundabald", "Gundabald Bolger", [18, 18]),
-        Hobbit.create("Frogo", "Frogo Hornfoot", [26, 16]),
-        Hobbit.create("Stumpy", "Stumpy", [36, 17]),
-        Hobbit.create("Hamwise", "Hamwise Prouse", [30, 17]),
-        Hobbit.create("Mordo", "Mordo Glugbottle", [20, 19]),
-      ],
-      buildings: [Building.instance(Building.Pantry, [14, 14])],
-    };
-  }
-
-  function loadState() {
-    let data = loadData();
-    if (data === "") {
-      return initialState();
-    } else {
-      return JSON.parse(data);
-    }
-  }
-
-  function saveState(state) {
-    saveData(JSON.stringify(state));
-  }
-
-  function onRender(state) {
-    // draw map
-    for (let j = 0; j < 20; j++) {
-      for (let i = 0; i < 56; i++) {
-        drawText(state.map[j][i], Color.GROUND, i, j);
-      }
-    }
-    // draw buildings
-    for (let i = 0; i < state.buildings.length; i++) {
-      const curr = state.buildings[i];
-      Building.draw(curr.type, curr.box, false);
-    }
-    // draw work items
-    state.workQueue.draw();
-    // draw hobbits
-    for (let i = 0; i < state.hobbits.length; i++) {
-      const curr = state.hobbits[i];
-      const x = curr.position[0];
-      const y = curr.position[1];
-      const char = state.selectedHobbit === i ? Char.HOBBIT_SEL : Char.HOBBIT;
-      drawText(char, Color.WHITE, x, y);
-    }
-    // draw modality
-    state.mode.onRender(state);
-    // draw cursor
-    if (state.cursor) {
-      const color = state.anim ? Color.WHITE : Color.GROUND;
-      const w = state.cursor.size[0];
-      const h = state.cursor.size[1];
-      const x = state.cursorPos[0] - Math.floor(w / 2);
-      const y = state.cursorPos[1] - Math.floor(h / 2);
-      fillArea("X", color, x, y, w, h);
-    }
-  }
 
   return {
     init: init,
