@@ -205,6 +205,7 @@ function TitleScene() {
 const Map = {
   width: 56,
   height: 20,
+  box: new Box([28, 10], [56, 20]),
   is: function (state, position, char) {
     let x = position[0];
     let y = position[1];
@@ -445,6 +446,35 @@ const Action = {
       }
     };
   },
+  Demolish: function (work) {
+    const go = Action.GoTo(work.position);
+    let timer = 10;
+    return function Demolish(hobbit, state) {
+      // Defer to goto action until complete.
+      if (go) {
+        let res = go(hobbit, state);
+        switch (res) {
+          case Action.Result.CONTINUE:
+            return Action.Result.CONTINUE;
+          case Action.Result.COMPLETE:
+            go = null;
+            return Action.Result.CONTINUE;
+          case Action.Result.CANCELED:
+            state.workQueue.canceled(work);
+            return Action.Result.CANCELED;
+        }
+      }
+      // Do the demo.
+      if (timer > 0) {
+        timer--;
+        return Action.Result.CONTINUE;
+      } else {
+        Arrays.removeItem(state.buildings, work.building);
+        state.workQueue.completed(work);
+        return Action.Result.COMPLETE;
+      }
+    };
+  },
   forWork: function (work) {
     switch (work.name) {
       case "Dig":
@@ -453,6 +483,8 @@ const Action = {
         return this.Fill(work);
       case "Build":
         return this.Build(work);
+      case "Demolish":
+        return this.Demolish(work);
       default:
         throw "Unable to create action for work type " + work.name;
     }
@@ -569,26 +601,22 @@ const Building = {
   },
   draw: function (type, box, isGhost) {
     const c = isGhost ? Color.BUILDING_GHOST : Color.BUILDING;
-    const w = box.size[0];
-    const h = box.size[1];
-    const x = box.corner[0];
-    const y = box.corner[1];
-    drawBox(c, x, y, w, h);
-    fillArea(type.icon, c, x + 1, y + 1, w - 2, h - 2);
+    box.drawOutline(c);
+    box.fillInside(type.icon, c);
   },
   fits: function (state, work) {
     // assumes work is a Build work item
-    const w = work.box.size[0];
-    const h = work.box.size[1];
-    const x0 = work.box.corner[0];
-    const y0 = work.box.corner[1];
-    const x1 = x0 + w - 1;
-    const y1 = y0 + h - 1;
     // do not build off the map
-    if (x0 < 0 || y0 < 0 || x1 >= Map.width || y1 >= Map.height) {
+    if (!work.box.inside(Map.box)) {
       return false;
     }
     // only build on open floor
+    const w = work.box.size[0];
+    const h = work.box.size[1];
+    const x0 = work.box.topLeft[0];
+    const y0 = work.box.topLeft[1];
+    const x1 = x0 + w - 1;
+    const y1 = y0 + h - 1;
     for (let j = y0; j <= y1; j++) {
       for (let i = x0; i <= x1; i++) {
         if (!Map.is(state, [i, j], Char.FLOOR)) {
@@ -597,24 +625,24 @@ const Building = {
       }
     }
     // check for other buildings
-    for (let i = 0; i < state.buildings.length; i++) {
-      let curr = state.buildings[i];
-      if (curr.box.overlaps(work.box)) {
-        return false;
-      }
-    }
+    const buildingConflict = overlapsHasBox(work);
     // check build work orders
-    for (let i = 0; i < state.workQueue.items.length; i++) {
-      let curr = state.workQueue.items[i];
-      if (
-        curr !== work &&
-        curr.name === "Build" &&
-        curr.box.overlaps(work.box)
-      ) {
-        return false;
-      }
-    }
-    return true;
+    const workConflict = function (curr) {
+      return (
+        curr !== work && curr.name === "Build" && curr.box.overlaps(work.box)
+      );
+    };
+    return (
+      !Arrays.find(state.buildings, buildingConflict) &&
+      !Arrays.find(state.workQueue.items, workConflict)
+    );
+  },
+  at: function (state, position) {
+    // is there a building at `position`?
+    const box = new Box(position, [1, 1]);
+    return Arrays.find(state.buildings, function (x) {
+      return box.overlaps(x.box);
+    });
   },
 };
 
@@ -641,6 +669,15 @@ const Work = {
       position: box.center,
       box: box,
       buildingType: buildingType,
+      claimedBy: null,
+      onHold: false,
+    };
+  },
+  Demolish: function (building) {
+    return {
+      name: "Demolish",
+      position: building.box.center,
+      building: building,
       claimedBy: null,
       onHold: false,
     };
@@ -929,6 +966,8 @@ function GameScene() {
         } else if (key === Key._3) {
           state.mode = Mode.build;
         } else if (key === Key._4) {
+          state.mode = Mode.demolish;
+        } else if (key === Key._5) {
           state.mode = Mode.hobbits;
         }
         return state;
@@ -941,7 +980,9 @@ function GameScene() {
         drawText("1. dig", Color.TEXT, offset + 1, 1);
         drawText("2. fill", Color.TEXT, offset + 1, 2);
         drawText("3. build", Color.TEXT, offset + 1, 3);
-        drawText("4. hobbits", Color.TEXT, offset + 1, 4);
+        drawText("4. demolish", Color.TEXT, offset + 1, 4);
+        drawText(" - - - - - - ", Color.TEXT, offset + 1, 5);
+        drawText("5. hobbits", Color.TEXT, offset + 1, 6);
       },
       onEnter: function (state) {},
       onExit: function (state) {},
@@ -1170,6 +1211,41 @@ function GameScene() {
         },
       };
     },
+    demolish: {
+      onInput: function (state, key) {
+        if (key === Key.ESCAPE) {
+          state.mode = Mode.rootMenu;
+        } else if (key == Key.TAB) {
+          state.mode = Mode.default;
+        } else if (key === Key.ENTER) {
+          const building = Building.at(state, state.cursorPos);
+          // there's a building here, demolish it!
+          if (building) {
+            state.workQueue.add(Work.Demolish(building));
+            state.mode = Mode.rootMenu;
+          }
+          // otherwise no-op
+        }
+        return state;
+      },
+      onRender: function (state) {
+        drawBox(Color.TEXT, 0, 0, 56, 1);
+        drawText(
+          "demolishing (ENTER to mark, ESC to cancel)",
+          Color.TEXT,
+          1,
+          0
+        );
+      },
+      onEnter: function (state) {
+        state.cursor = Cursor.on([1, 1]);
+        return state;
+      },
+      onExit: function (state) {
+        state.cursor = Cursor.OFF;
+        return state;
+      },
+    },
   };
 
   return {
@@ -1220,23 +1296,71 @@ function Debug() {
 function Box(center, size) {
   this.center = center;
   this.size = size;
-  this.radius = [size[0] / 2, size[1] / 2]; // warning: non-integer values!
-  this.corner = [
-    center[0] - Math.floor(this.radius[0]),
-    center[1] - Math.floor(this.radius[1]),
+
+  this.topLeft = [
+    center[0] - Math.floor(size[0] / 2),
+    center[1] - Math.floor(size[1] / 2),
   ];
+  this.bottomRight = [
+    center[0] + Math.ceil(size[0] / 2) - 1,
+    center[1] + Math.ceil(size[1] / 2) - 1,
+  ];
+
   this.overlaps = function (that) {
-    const dx = that.corner[0] - this.corner[0];
-    const px = that.radius[0] + this.radius[0] - Math.abs(dx);
-    if (px <= 0) {
-      return false;
-    }
-    const dy = that.corner[1] - this.corner[1];
-    const py = that.radius[1] + this.radius[1] - Math.abs(dy);
-    if (py <= 0) {
-      return false;
-    }
-    return true;
+    // for each axis: `this` range is [a0,a1] and `that` range is [b0,b1]
+    // if overlap, a0 <= b1 && b0 <= a1
+    return (
+      this.topLeft[0] <= that.bottomRight[0] &&
+      that.topLeft[0] <= this.bottomRight[0] &&
+      this.topLeft[1] <= that.bottomRight[1] &&
+      that.topLeft[1] <= this.bottomRight[1]
+    );
+  };
+  this.inside = function (that) {
+    // both of `this` corners have to be entirely inside `that`
+    return (
+      this.topLeft[0] >= that.topLeft[0] &&
+      this.bottomRight[0] <= that.bottomRight[0] &&
+      this.topLeft[1] >= that.topLeft[1] &&
+      this.bottomRight[1] <= that.bottomRight[1]
+    );
+  };
+
+  this.drawOutline = function (color) {
+    drawBox(
+      color,
+      this.topLeft[0],
+      this.topLeft[1],
+      this.size[0],
+      this.size[1]
+    );
+  };
+  this.fill = function (character, color) {
+    fillArea(
+      character,
+      color,
+      this.topLeft[0],
+      this.topLeft[1],
+      this.size[0],
+      this.size[1]
+    );
+  };
+  this.fillInside = function (character, color) {
+    fillArea(
+      character,
+      color,
+      this.topLeft[0] + 1,
+      this.topLeft[1] + 1,
+      this.size[0] - 2,
+      this.size[1] - 2
+    );
+  };
+}
+
+/** do two objects that have boxes overlap? (curried) */
+function overlapsHasBox(a) {
+  return function (b) {
+    return a.box.overlaps(b.box);
   };
 }
 
