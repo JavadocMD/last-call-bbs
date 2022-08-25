@@ -254,14 +254,29 @@ const Action = {
     COMPLETE: 0,
     CANCELED: 1,
   },
-  Idle: function Idle(hobbit, state) {
-    if (randomInt(7) === 0) {
-      let ns = Map.walkableNeighbors(state, hobbit.position);
-      if (notEmpty(ns)) {
-        hobbit.position = Arrays.random(ns);
+  Idle: function () {
+    let first = true;
+    return function Idle(hobbit, state) {
+      if (first) {
+        hobbit.thoughts = Arrays.random(Hobbit.idleThoughts);
+        first = false;
       }
-    }
-    return Action.Result.CONTINUE;
+      const behavior = randomInt(7);
+      if (behavior === 0) {
+        // Wander
+        let ns = Map.walkableNeighbors(state, hobbit.position);
+        if (notEmpty(ns)) {
+          hobbit.position = Arrays.random(ns);
+        }
+        return Action.Result.CONTINUE;
+      } else {
+        // Check self-status
+        // if hungry, go eat
+        // if joyful, play music
+        // if tired, go sleep
+        return Action.Result.CONTINUE;
+      }
+    };
   },
   Walk: function (path) {
     return function Walk(hobbit, state) {
@@ -497,11 +512,19 @@ const Hobbit = {
       name: shortName,
       fullName: fullName,
       position: position,
-      action: Action.Idle,
+      action: Action.Idle(),
       mood: 0,
       hunger: 10,
+      thoughts: Arrays.random(Hobbit.idleThoughts),
     };
   },
+  idleThoughts: [
+    "Nothin' particular.",
+    "Lovely day, innit?",
+    "Oi.",
+    "What's goin' on 'ere then?",
+    "Nice weather.",
+  ],
   Mood: {
     min: 0,
     max: 6, // non-inclusive
@@ -642,6 +665,11 @@ const Building = {
     const box = new Box(position, [1, 1]);
     return Arrays.find(state.buildings, function (x) {
       return box.overlaps(x.box);
+    });
+  },
+  get: function (state, type) {
+    return Arrays.find(state.buildings, function (x) {
+      return x.type === type;
     });
   },
 };
@@ -793,10 +821,8 @@ function GameScene() {
           case Action.Result.CONTINUE:
             break;
           case Action.Result.COMPLETE:
-            h.action = Action.Idle;
-            break;
           case Action.Result.CANCELED:
-            h.action = Action.Idle;
+            h.action = Action.Idle();
             break;
           default:
             throw "Action.Result not valid.";
@@ -1046,6 +1072,8 @@ function GameScene() {
             offset + 2,
             7
           );
+          drawText("Thoughts:", Color.TEXT, offset + 1, 8);
+          drawTextWrapped(curr.thoughts, Color.TEXT, offset + 2, 9, 13);
         },
         onEnter: function (state) {
           state.selectedHobbit = index;
@@ -1072,7 +1100,7 @@ function GameScene() {
             // terminate existing dig orders
             state.workQueue.remove(work);
             if (work.claimedBy) {
-              work.claimedBy.action = Action.Idle;
+              work.claimedBy.action = Action.Idle();
             }
           }
           // leave non-dig orders as-is
@@ -1109,7 +1137,7 @@ function GameScene() {
             // terminate existing fill orders
             state.workQueue.remove(work);
             if (work.claimedBy) {
-              work.claimedBy.action = Action.Idle;
+              work.claimedBy.action = Action.Idle();
             }
           }
           // leave non-fill orders as-is
@@ -1190,7 +1218,7 @@ function GameScene() {
               // terminate existing build orders
               state.workQueue.remove(work);
               if (work.claimedBy) {
-                work.claimedBy.action = Action.Idle;
+                work.claimedBy.action = Action.Idle();
               }
             }
             // leave non-build orders as-is
