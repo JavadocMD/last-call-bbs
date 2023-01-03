@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "baseUrl": "src",
+    "module": "ES6",
+    "target": "ES5",
+    "strict": true,
+    "outDir": "out/compile"
+  },
+  "include": ["src/**/*.ts"]
+}

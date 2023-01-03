@@ -1,6 +1,6 @@
-# Ignore everything...
-*
-# except explicitly tracked files.
+# Ignore everything in root folder...
+/*
+# except explicitly tracked files/directories.
 !.gitignore
 !README.md
 !LICENSE.md
@@ -8,5 +8,6 @@
 !example.js
 !example.jpg
 !netmaze.js
+!hobbithome
 !hobbithome.js
 # This way I can "install" other servers without including them in the repo.
